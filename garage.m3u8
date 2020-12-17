@@ -1,0 +1,4 @@
+#EXTM3U
+#EXTINF:0,rtsp://192.168.1.79/live
+#EXTVLCOPT:network-caching=1000
+rtsp://user:pass@192.168.1.79/live
