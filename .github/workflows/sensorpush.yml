@@ -5,7 +5,8 @@ name: SensorPush data
 # from raw.githubusercontent.com, so main's history never grows.
 on:
   schedule:
-    - cron: "*/15 * * * *"   # GitHub may delay scheduled runs by several minutes
+    # Off-the-hour minutes: GitHub drops :00 runs first when its scheduler is busy.
+    - cron: "7,22,37,52 * * * *"
   workflow_dispatch:
 
 permissions:
