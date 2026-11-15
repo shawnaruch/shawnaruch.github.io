@@ -1,0 +1,5 @@
+# Network scan output maps the home network. Never publish it.
+netscan-output/
+inventory.json
+inventory.md
+oui.csv
