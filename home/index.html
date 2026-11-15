@@ -144,6 +144,10 @@ code { font-size: 13px; }
     return `${Math.round(h / 24)} days ago`;
   }
   const minutesSince = (iso) => iso ? (Date.now() - new Date(iso)) / 60000 : Infinity;
+  // Device health is judged at the moment the feed was pulled, so a late feed
+  // doesn't make every sensor look offline.
+  const ageAtPull = (iso) => iso && data ? (new Date(data.generated_at) - new Date(iso)) / 60000 : Infinity;
+  const FEED_STALE_MIN = 45;
   const timeOf = (epoch) => new Date(epoch * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 
   // Single-series line+area chart with a hover crosshair. One axis per chart.
@@ -213,7 +217,7 @@ code { font-size: 13px; }
   }
 
   function statusFor(s) {
-    const age = minutesSince(s.latest?.observed);
+    const age = ageAtPull(s.latest?.observed);
     if (!s.latest) return { color: "var(--critical)", text: "No data", stale: true };
     if (age > STALE_MIN) return { color: "var(--warning)", text: `Offline · ${ago(s.latest.observed)}`, stale: true };
     if (s.battery_voltage != null && s.battery_voltage < LOW_BATTERY_V)
@@ -236,12 +240,12 @@ code { font-size: 13px; }
     if (offline) pills.push(`<span class="pill"><span class="dot" style="background:var(--warning)"></span>⚠ ${offline} offline</span>`);
     if (lowBatt) pills.push(`<span class="pill"><span class="dot" style="background:var(--warning)"></span>🔋 ${lowBatt} low battery</span>`);
     for (const g of data.gateways || []) {
-      const gAge = minutesSince(g.last_seen);
+      const gAge = ageAtPull(g.last_seen);
       const ok = gAge <= STALE_MIN;
       pills.push(`<span class="pill" title="Last seen ${esc(g.last_seen)}"><span class="dot" style="background:${ok ? "var(--good)" : "var(--critical)"}"></span>${ok ? "" : "✕ "}Gateway ${esc(g.name)} · ${ago(g.last_seen)}</span>`);
     }
-    if (minutesSince(data.generated_at) > 60)
-      pills.push(`<span class="pill"><span class="dot" style="background:var(--critical)"></span>✕ Data feed stale. Check the GitHub Action.</span>`);
+    if (minutesSince(data.generated_at) > FEED_STALE_MIN)
+      pills.unshift(`<span class="pill"><span class="dot" style="background:var(--warning)"></span>⚠ Feed last updated ${ago(data.generated_at)}. Waiting on the GitHub Action, not a sensor problem.</span>`);
     $("summary").innerHTML = pills.join("");
 
     const root = $("cards");
