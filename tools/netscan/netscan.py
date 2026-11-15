@@ -52,12 +52,12 @@ PROBE_PORTS = {
     5001: "https-5001", 5683: "coap", 6053: "esphome-api", 6466: "androidtv-remote",
     6467: "androidtv-pair", 6668: "tuya", 7000: "airplay", 8000: "http-8000",
     8001: "samsung-tv", 8002: "samsung-tv-tls", 8008: "cast", 8009: "cast-tls",
-    8060: "roku-ecp", 8080: "http-8080", 8081: "http-8081", 8123: "home-assistant",
+    8060: "roku-ecp", 8080: "http-8080", 8081: "http-8081", 8089: "channels-dvr", 8123: "home-assistant",
     8443: "https-8443", 8883: "mqtt-tls", 8899: "onvif-alt2", 9000: "http-9000",
     9100: "jetdirect", 9999: "kasa", 10001: "ubiquiti", 32400: "plex",
     49152: "upnp", 55443: "yeelight", 62078: "apple-lockdown",
 }
-HTTP_PORTS = [80, 8080, 8000, 8081, 5000, 3000, 9000]
+HTTP_PORTS = [80, 8080, 8000, 8081, 8089, 5000, 3000, 9000]
 HTTPS_PORTS = [443, 8443, 5001]
 
 # Local LAN devices use self-signed certs. This context is ONLY used to read
@@ -532,6 +532,9 @@ RULES = [
     (lambda d: _has(d, "synology") or "http-5000" in d["ports"].values() and _has(d, "diskstation"),
      "NAS", "Synology DSM API or SNMP (disks, volumes, temps)", "full",
      ["read-only DSM user, or SNMP community"]),
+    (lambda d: "channels-dvr" in d["ports"].values() or _has(d, "channels dvr"),
+     "DVR server (Channels)", "Channels DVR HTTP API on :8089 (recordings, guide, jobs, disk)", "full",
+     ["nothing on the LAN; remote access must be enabled to reach it from outside"]),
     (lambda d: "plex" in d["ports"].values(),
      "Media server", "Plex API on :32400 (sessions, libraries)", "full", ["X-Plex-Token"]),
     (lambda d: "mqtt" in d["ports"].values() or _svc(d, "_mqtt._tcp"),
