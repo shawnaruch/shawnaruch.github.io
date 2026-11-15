@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Home Sensors</title>
+<meta name="robots" content="noindex">
+<style>
+:root {
+  color-scheme: light;
+  --bg: #f4f4f2;
+  --surface: #fcfcfb;
+  --text: #0b0b0b;
+  --text-2: #52514e;
+  --muted: #898781;
+  --grid: #e1e0d9;
+  --border: rgba(11,11,11,0.10);
+  --temp: #eb6834;
+  --hum: #2a78d6;
+  --good: #0ca30c;
+  --warning: #fab219;
+  --critical: #d03b3b;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #111110;
+    --surface: #1a1a19;
+    --text: #f0efec;
+    --text-2: #c3c2b7;
+    --grid: #2c2c2a;
+    --border: rgba(255,255,255,0.10);
+    --temp: #d95926;
+    --hum: #3987e5;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #111110;
+  --surface: #1a1a19;
+  --text: #f0efec;
+  --text-2: #c3c2b7;
+  --grid: #2c2c2a;
+  --border: rgba(255,255,255,0.10);
+  --temp: #d95926;
+  --hum: #3987e5;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 1200px; margin: 0 auto; padding: 20px 16px 48px; }
+header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 16px; margin-bottom: 16px; }
+h1 { font-size: 22px; margin: 0; font-weight: 650; letter-spacing: -0.01em; }
+.updated { color: var(--text-2); font-size: 13px; }
+.spacer { flex: 1; }
+button {
+  font: inherit; font-size: 13px; color: var(--text); background: var(--surface);
+  border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; cursor: pointer;
+}
+button:hover { border-color: var(--muted); }
+.summary { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+.pill {
+  display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-2);
+  background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 4px 12px;
+}
+.dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+.card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+  padding: 16px; min-width: 0;
+}
+.card-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.card-head h2 { font-size: 15px; font-weight: 600; margin: 0; flex: 1; min-width: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.badge { font-size: 12px; color: var(--text-2); display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.hero { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+.temp { font-size: 44px; font-weight: 600; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; line-height: 1; }
+.temp small { font-size: 20px; font-weight: 500; color: var(--text-2); letter-spacing: 0; }
+.hum { font-size: 22px; font-weight: 550; font-variant-numeric: tabular-nums; }
+.hum small { font-size: 13px; color: var(--text-2); font-weight: 400; }
+.meta { color: var(--text-2); font-size: 13px; margin-top: 6px; font-variant-numeric: tabular-nums; }
+.chart { position: relative; margin-top: 12px; }
+.chart-label { font-size: 12px; color: var(--muted); display: flex; justify-content: space-between; margin-bottom: 2px; }
+.chart svg { display: block; width: 100%; height: 64px; overflow: visible; touch-action: none; }
+.chart.hum-chart svg { height: 40px; }
+.tip {
+  position: absolute; top: -6px; pointer-events: none; transform: translate(-50%, -100%);
+  background: var(--text); color: var(--surface); font-size: 12px; padding: 4px 8px; border-radius: 6px;
+  white-space: nowrap; font-variant-numeric: tabular-nums; display: none; z-index: 2;
+}
+.stale .temp, .stale .hum { color: var(--muted); }
+.empty, .error {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+  padding: 24px; color: var(--text-2);
+}
+.error strong { color: var(--text); }
+code { font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Home Sensors</h1>
+    <span class="updated" id="updated">Loading…</span>
+    <span class="spacer"></span>
+    <button id="unit" type="button" aria-label="Toggle temperature unit">°F</button>
+    <button id="refresh" type="button">Refresh</button>
+  </header>
+  <div class="summary" id="summary"></div>
+  <div id="cards" class="grid" aria-live="polite"></div>
+</div>
+
+<script>
+(() => {
+  // Data published by .github/workflows/sensorpush.yml. Override with ?data=<url>.
+  const DEFAULT_URL =
+    "https://raw.githubusercontent.com/shawnaruch/shawnaruch.github.io/sensorpush-data/latest.json";
+  const DATA_URL = new URLSearchParams(location.search).get("data") || DEFAULT_URL;
+  const STALE_MIN = 30;          // reading older than this = sensor flagged
+  const LOW_BATTERY_V = 2.5;     // SensorPush coin cells read ~3.0V new
+  const REFRESH_MS = 5 * 60 * 1000;
+
+  const $ = (id) => document.getElementById(id);
+  let unit = "F";
+  try { unit = localStorage.getItem("sp-unit") || "F"; } catch (_) {}
+  let data = null;
+
+  const toUnit = (f) => f == null ? null : unit === "F" ? f : (f - 32) * 5 / 9;
+  const toUnitDelta = (d) => d == null ? null : unit === "F" ? d : d * 5 / 9;
+  const fmt = (v, digits = 1) => v == null ? "–" : v.toFixed(digits);
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+  function ago(iso) {
+    if (!iso) return "never";
+    const m = Math.round((Date.now() - new Date(iso)) / 60000);
+    if (m < 1) return "just now";
+    if (m < 60) return `${m} min ago`;
+    const h = Math.round(m / 60);
+    if (h < 48) return `${h} hr ago`;
+    return `${Math.round(h / 24)} days ago`;
+  }
+  const minutesSince = (iso) => iso ? (Date.now() - new Date(iso)) / 60000 : Infinity;
+  const timeOf = (epoch) => new Date(epoch * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+
+  // Single-series line+area chart with a hover crosshair. One axis per chart.
+  function chart(series, idx, color, label, unitLabel, convert) {
+    const pts = series.filter((p) => p[idx] != null).map((p) => [p[0], convert(p[idx])]);
+    const wrap = document.createElement("div");
+    wrap.className = "chart" + (idx === 2 ? " hum-chart" : "");
+    if (pts.length < 2) {
+      wrap.innerHTML = `<div class="chart-label"><span>${label}</span><span>no history</span></div>`;
+      return wrap;
+    }
+    const W = 300, H = idx === 2 ? 40 : 64, pad = 3;
+    const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
+    const x0 = xs[0], x1 = xs[xs.length - 1];
+    let lo = Math.min(...ys), hi = Math.max(...ys);
+    if (hi - lo < 2) { const mid = (hi + lo) / 2; lo = mid - 1; hi = mid + 1; }
+    const sx = (x) => ((x - x0) / (x1 - x0 || 1)) * W;
+    const sy = (y) => pad + (1 - (y - lo) / (hi - lo)) * (H - pad * 2);
+    // Break the line where a gap of >30 min exists.
+    let d = "", area = "", seg = [];
+    const flush = () => {
+      if (seg.length < 1) return;
+      const line = seg.map((p, i) => `${i ? "L" : "M"}${sx(p[0]).toFixed(1)},${sy(p[1]).toFixed(1)}`).join("");
+      d += line;
+      area += line + `L${sx(seg[seg.length - 1][0]).toFixed(1)},${H}L${sx(seg[0][0]).toFixed(1)},${H}Z`;
+      seg = [];
+    };
+    pts.forEach((p, i) => { if (i && p[0] - pts[i - 1][0] > 1800) flush(); seg.push(p); });
+    flush();
+    const minV = Math.min(...ys), maxV = Math.max(...ys);
+    wrap.innerHTML = `
+      <div class="chart-label"><span>${label} · 24h</span></div>
+      <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img"
+           aria-label="${label} last 24 hours, range ${fmt(minV)} to ${fmt(maxV)}${unitLabel}">
+        <line x1="0" x2="${W}" y1="${H - 0.5}" y2="${H - 0.5}" stroke="var(--grid)" stroke-width="1" vector-effect="non-scaling-stroke"/>
+        <path d="${area}" fill="${color}" opacity="0.12"/>
+        <path d="${d}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>
+        <line class="xh" y1="0" y2="${H}" stroke="var(--muted)" stroke-width="1" vector-effect="non-scaling-stroke" visibility="hidden"/>
+      </svg>
+      <div class="tip"></div>`;
+    const svg = wrap.querySelector("svg"), xh = wrap.querySelector(".xh"), tip = wrap.querySelector(".tip");
+    // Circle would stretch under preserveAspectRatio=none, so place an HTML dot instead.
+    const dot = document.createElement("div");
+    dot.style.cssText = `position:absolute;width:9px;height:9px;border-radius:50%;background:${color};
+      box-shadow:0 0 0 2px var(--surface);transform:translate(-50%,-50%);pointer-events:none;display:none`;
+    wrap.appendChild(dot);
+    const move = (ev) => {
+      const r = svg.getBoundingClientRect();
+      const fx = Math.min(Math.max((ev.clientX - r.left) / r.width, 0), 1);
+      const tx = x0 + fx * (x1 - x0);
+      let best = pts[0];
+      for (const p of pts) if (Math.abs(p[0] - tx) < Math.abs(best[0] - tx)) best = p;
+      const px = (sx(best[0]) / W) * r.width, py = (sy(best[1]) / H) * r.height;
+      const offTop = r.top - wrap.getBoundingClientRect().top;
+      xh.setAttribute("x1", sx(best[0])); xh.setAttribute("x2", sx(best[0])); xh.setAttribute("visibility", "visible");
+      dot.style.left = px + "px"; dot.style.top = offTop + py + "px"; dot.style.display = "block";
+      tip.textContent = `${fmt(best[1])}${unitLabel} · ${timeOf(best[0])}`;
+      tip.style.left = Math.min(Math.max(px, 50), r.width - 50) + "px";
+      tip.style.top = offTop - 4 + "px";
+      tip.style.display = "block";
+    };
+    const leave = () => { xh.setAttribute("visibility", "hidden"); tip.style.display = "none"; dot.style.display = "none"; };
+    svg.addEventListener("pointermove", move);
+    svg.addEventListener("pointerdown", move);
+    svg.addEventListener("pointerleave", leave);
+    return wrap;
+  }
+
+  function statusFor(s) {
+    const age = minutesSince(s.latest?.observed);
+    if (!s.latest) return { color: "var(--critical)", text: "No data", stale: true };
+    if (age > STALE_MIN) return { color: "var(--warning)", text: `Offline · ${ago(s.latest.observed)}`, stale: true };
+    if (s.battery_voltage != null && s.battery_voltage < LOW_BATTERY_V)
+      return { color: "var(--warning)", text: `Low battery ${s.battery_voltage.toFixed(2)}V`, stale: false };
+    return { color: "var(--good)", text: ago(s.latest.observed), stale: false };
+  }
+
+  function render() {
+    if (!data) return;
+    const u = "°" + unit;
+    $("unit").textContent = u;
+    $("updated").textContent = `Data pulled ${ago(data.generated_at)}`;
+    $("updated").title = new Date(data.generated_at).toLocaleString();
+
+    const sensors = data.sensors || [];
+    const statuses = sensors.map(statusFor);
+    const offline = statuses.filter((s) => s.stale).length;
+    const lowBatt = sensors.filter((s) => s.battery_voltage != null && s.battery_voltage < LOW_BATTERY_V).length;
+    const pills = [`<span class="pill"><span class="dot" style="background:var(--good)"></span>${sensors.length - offline} of ${sensors.length} sensors reporting</span>`];
+    if (offline) pills.push(`<span class="pill"><span class="dot" style="background:var(--warning)"></span>⚠ ${offline} offline</span>`);
+    if (lowBatt) pills.push(`<span class="pill"><span class="dot" style="background:var(--warning)"></span>🔋 ${lowBatt} low battery</span>`);
+    for (const g of data.gateways || []) {
+      const gAge = minutesSince(g.last_seen);
+      const ok = gAge <= STALE_MIN;
+      pills.push(`<span class="pill" title="Last seen ${esc(g.last_seen)}"><span class="dot" style="background:${ok ? "var(--good)" : "var(--critical)"}"></span>${ok ? "" : "✕ "}Gateway ${esc(g.name)} · ${ago(g.last_seen)}</span>`);
+    }
+    if (minutesSince(data.generated_at) > 60)
+      pills.push(`<span class="pill"><span class="dot" style="background:var(--critical)"></span>✕ Data feed stale. Check the GitHub Action.</span>`);
+    $("summary").innerHTML = pills.join("");
+
+    const root = $("cards");
+    root.innerHTML = "";
+    if (!sensors.length) {
+      root.innerHTML = `<div class="empty">No active sensors in the feed.</div>`;
+      return;
+    }
+    sensors.forEach((s, i) => {
+      const st = statuses[i];
+      const L = s.latest || {};
+      const card = document.createElement("section");
+      card.className = "card" + (st.stale ? " stale" : "");
+      const trend = toUnitDelta(s.trend_1h);
+      const arrow = trend == null ? "" : trend > 0.3 ? "↑" : trend < -0.3 ? "↓" : "→";
+      const extras = [];
+      if (L.dewpoint != null) extras.push(`Dew point ${fmt(toUnit(L.dewpoint))}${u}`);
+      if (L.barometric_pressure != null) extras.push(`${fmt(L.barometric_pressure, 2)} inHg`);
+      if (trend != null) extras.push(`${arrow} ${trend > 0 ? "+" : ""}${fmt(trend)}° vs 1h ago`);
+      const st24 = s.stats_24h || {};
+      card.innerHTML = `
+        <div class="card-head">
+          <h2 title="${esc(s.name)}">${esc(s.name)}</h2>
+          <span class="badge"><span class="dot" style="background:${st.color}"></span>${esc(st.text)}</span>
+        </div>
+        <div class="hero">
+          <span class="temp">${fmt(toUnit(L.temperature))}<small>${u}</small></span>
+          <span class="hum">${fmt(L.humidity, 0)}<small>% RH</small></span>
+        </div>
+        <div class="meta">${extras.join(" · ") || "&nbsp;"}</div>
+        <div class="meta">24h: ${fmt(toUnit(st24.temp_min))}–${fmt(toUnit(st24.temp_max))}${u}, ${fmt(st24.hum_min, 0)}–${fmt(st24.hum_max, 0)}% RH</div>`;
+      card.appendChild(chart(s.series || [], 1, "var(--temp)", "Temperature", u, toUnit));
+      card.appendChild(chart(s.series || [], 2, "var(--hum)", "Humidity", "%", (v) => v));
+      root.appendChild(card);
+    });
+  }
+
+  async function load() {
+    $("updated").textContent = data ? $("updated").textContent : "Loading…";
+    try {
+      // raw.githubusercontent caches ~5 min; the query string busts browser cache.
+      const sep = DATA_URL.includes("?") ? "&" : "?";
+      const res = await fetch(`${DATA_URL}${sep}t=${Math.floor(Date.now() / 60000)}`, { cache: "no-store" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      data = await res.json();
+      render();
+    } catch (e) {
+      if (data) { render(); return; }
+      $("updated").textContent = "";
+      $("cards").innerHTML = `<div class="error"><strong>Couldn't load sensor data</strong> (${esc(e.message)}).<br>
+        The feed lives at <code>${esc(DATA_URL)}</code>. If this is a new setup, run the
+        “SensorPush data” workflow once from the GitHub Actions tab.</div>`;
+    }
+  }
+
+  $("unit").addEventListener("click", () => {
+    unit = unit === "F" ? "C" : "F";
+    try { localStorage.setItem("sp-unit", unit); } catch (_) {}
+    render();
+  });
+  $("refresh").addEventListener("click", load);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) load(); });
+  setInterval(load, REFRESH_MS);
+  setInterval(render, 60 * 1000); // keep "x min ago" labels honest
+  load();
+})();
+</script>
+</body>
+</html>

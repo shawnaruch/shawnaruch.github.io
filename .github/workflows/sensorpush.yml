@@ -1,0 +1,39 @@
+name: SensorPush data
+
+# Pulls SensorPush readings and force-pushes them as a single commit to the
+# orphan branch `sensorpush-data`. The dashboard at /home/ reads that file
+# from raw.githubusercontent.com, so main's history never grows.
+on:
+  schedule:
+    - cron: "*/15 * * * *"   # GitHub may delay scheduled runs by several minutes
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sensorpush-data
+  cancel-in-progress: false
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch from SensorPush
+        env:
+          SENSORPUSH_EMAIL: ${{ secrets.SENSORPUSH_EMAIL }}
+          SENSORPUSH_PASSWORD: ${{ secrets.SENSORPUSH_PASSWORD }}
+        run: python3 scripts/fetch_sensorpush.py "$RUNNER_TEMP/out/latest.json"
+
+      - name: Publish to sensorpush-data branch
+        run: |
+          cd "$RUNNER_TEMP/out"
+          git init -q -b sensorpush-data
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add latest.json
+          git commit -q -m "SensorPush data $(date -u +%Y-%m-%dT%H:%MZ)"
+          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" sensorpush-data
