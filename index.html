@@ -246,6 +246,70 @@ code { font-size: 13px; }
     return wrap;
   }
 
+  // Nest: ambient temperature line with heating/cooling periods shaded behind it.
+  function nestChart(history) {
+    const tLast = history.length ? history[history.length - 1][0] : 0;
+    const h = history.filter((r) => r[0] >= tLast - rangeH * 3600);
+    const wrap = document.createElement("div");
+    wrap.className = "chart";
+    if (h.length < 2) {
+      wrap.innerHTML = `<div class="chart-label"><span>Thermostat · ${rangeH}h</span><span>history builds up over the next few hours</span></div>`;
+      return wrap;
+    }
+    const W = 300, H = 64, pad = 3;
+    const x0 = h[0][0], x1 = h[h.length - 1][0];
+    const vals = h.flatMap((r) => [r[1], r[3]]).filter((v) => v != null).map(toUnit);
+    let lo = Math.min(...vals), hi = Math.max(...vals);
+    if (hi - lo < 2) { const m = (hi + lo) / 2; lo = m - 1; hi = m + 1; }
+    const sx = (x) => ((x - x0) / (x1 - x0 || 1)) * W;
+    const sy = (y) => pad + (1 - (y - lo) / (hi - lo)) * (H - pad * 2);
+    let bands = "";
+    h.forEach((r, i) => {
+      if (!r[2] || i === h.length - 1) return;
+      const color = r[2] === 1 ? "var(--temp)" : "var(--hum)";
+      bands += `<rect x="${sx(r[0]).toFixed(1)}" y="0" width="${Math.max(sx(h[i + 1][0]) - sx(r[0]), 1).toFixed(1)}" height="${H}" fill="${color}" opacity="0.22"/>`;
+    });
+    const line = h.filter((r) => r[1] != null).map((r, i) => `${i ? "L" : "M"}${sx(r[0]).toFixed(1)},${sy(toUnit(r[1])).toFixed(1)}`).join("");
+    const set = h.filter((r) => r[3] != null).map((r, i) => `${i ? "L" : "M"}${sx(r[0]).toFixed(1)},${sy(toUnit(r[3])).toFixed(1)}`).join("");
+    const anyCool = h.some((r) => r[2] === 2), anyHeat = h.some((r) => r[2] === 1);
+    const legend = [anyHeat && "orange = heating", anyCool && "blue = cooling", set && "dashed = set point"].filter(Boolean).join(" · ");
+    wrap.innerHTML = `
+      <div class="chart-label"><span>Thermostat · ${rangeH}h</span><span>${legend}</span></div>
+      <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Thermostat temperature and heating periods, last ${rangeH} hours">
+        ${bands}
+        <line x1="0" x2="${W}" y1="${H - 0.5}" y2="${H - 0.5}" stroke="var(--grid)" stroke-width="1" vector-effect="non-scaling-stroke"/>
+        ${set ? `<path d="${set}" fill="none" stroke="var(--text-2)" stroke-width="1.5" stroke-dasharray="4 3" vector-effect="non-scaling-stroke"/>` : ""}
+        <path d="${line}" fill="none" stroke="var(--text)" stroke-width="2" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
+      </svg>`;
+    return wrap;
+  }
+
+  function nestCard(n) {
+    const u = "°" + unit;
+    const card = document.createElement("section");
+    card.className = "card" + (n.online ? "" : " stale");
+    const hv = n.hvac === "HEATING" ? "🔥 Heating" : n.hvac === "COOLING" ? "❄ Cooling" : "Idle";
+    const mode = n.mode === "OFF" ? "Off"
+      : n.eco ? `Eco · ${[n.heat_to, n.cool_to].filter((v) => v != null).map((v) => fmt(toUnit(v)) + u).join("–")}`
+      : n.mode === "HEAT" ? `Heat · set to ${fmt(toUnit(n.heat_to))}${u}`
+      : n.mode === "COOL" ? `Cool · set to ${fmt(toUnit(n.cool_to))}${u}`
+      : n.mode === "HEATCOOL" ? `Heat/Cool · ${fmt(toUnit(n.heat_to))}–${fmt(toUnit(n.cool_to))}${u}` : (n.mode || "–");
+    card.innerHTML = `
+      <div class="card-head">
+        <h2 title="${esc(n.name)}">${esc(n.name)}</h2>
+        <span class="badge"><span class="dot" style="background:${n.online ? "var(--good)" : "var(--warning)"}"></span>${n.online ? "Nest thermostat" : "Nest offline"}</span>
+      </div>
+      <div class="hero">
+        <span class="temp">${fmt(toUnit(n.ambient))}<small>${u}</small></span>
+        <span class="hum">${fmt(n.humidity, 0)}<small>% RH</small></span>
+        <span class="trend">${hv}</span>
+      </div>
+      <div class="meta">Mode: ${esc(mode)}</div>
+      <div class="meta">Checked ${ago(n.observed)}</div>`;
+    card.appendChild(nestChart(n.history || []));
+    return card;
+  }
+
   function statusFor(s) {
     const age = ageAtPull(s.latest?.observed);
     if (!s.latest) return { color: "var(--critical)", text: "No data", stale: true };
@@ -277,11 +341,14 @@ code { font-size: 13px; }
     }
     if (minutesSince(data.generated_at) > FEED_STALE_MIN)
       pills.unshift(`<span class="pill"><span class="dot" style="background:var(--warning)"></span>⚠ Feed last updated ${ago(data.generated_at)}. Waiting on the GitHub Action, not a sensor problem.</span>`);
+    if (data.nest_error)
+      pills.push(`<span class="pill" title="${esc(data.nest_error)}"><span class="dot" style="background:var(--warning)"></span>⚠ Nest didn't update on the last pull</span>`);
     $("summary").innerHTML = pills.join("");
 
     const root = $("cards");
     root.innerHTML = "";
-    if (!sensors.length) {
+    for (const n of data.nest || []) root.appendChild(nestCard(n));
+    if (!sensors.length && !(data.nest || []).length) {
       root.innerHTML = `<div class="empty">No active sensors in the feed.</div>`;
       return;
     }
