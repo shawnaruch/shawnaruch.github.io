@@ -43,7 +43,7 @@ SCHEMA = {
     "properties": {
         "shows_furnace": {
             "type": "boolean",
-            "description": "True only if the image shows the furnace or its control board/display.",
+            "description": "True if the furnace, its door window, or its status display is in view.",
         },
         "status": {
             "type": "string",
@@ -74,23 +74,28 @@ SCHEMA = {
 }
 
 PROMPT = """These {n} frames, in time order about {gap:.1f} s apart, come from a camera pointed at a home gas furnace.
-Context: the furnace has been throwing error 57, which this owner reads as a pressure-switch fault.
-A technician is booked. This check runs every 15 minutes so the owner knows if the furnace is faulting again.
 
-Read the image and report:
-- whether the furnace (or its control board / status display) is in view
-- exactly what the status display or LED shows, character for character if it is a digit display
-- any error code shown
-- anything unsafe or unusual (water, scorch marks, smoke, panels off, wires disconnected or jumpered)
+What the camera sees: a close-up of a small translucent oval window on the furnace's blower door. Behind it is the
+control board's status display: a single-character LED digit that may look faint, glowing, or slightly blurred
+through the plastic. Seeing that window counts as seeing the furnace (shows_furnace = true), even if nothing else
+of the furnace is in frame.
 
-This furnace's display shows a code one character at a time: for error 57 it shows "5" in one frame and
-"7" in the next, then repeats, possibly with blank frames between. Read the display in every frame and put
-the characters together in the order they appear, starting from the first character after a blank or a
-repeat. Report display_reading as the sequence you saw (e.g. "5, 7, blank, 5, 7") and error_code as the
-assembled code (e.g. "57"). If the frames show only one character, or the sequence is ambiguous, say so,
-set status "unclear", and do not guess the missing part.
+How the display works:
+- "0" means no fault; that is the normal reading (status "normal", error_code empty).
+- A fault code is shown one digit at a time: for error 57 it shows "5" in one frame and "7" in the next, then
+  repeats, possibly with blank frames between. Read the digit in every frame and assemble the code in order,
+  starting from the first digit after a blank or a repeat. Report display_reading as the sequence you saw
+  (e.g. "5, 7, blank, 5, 7") and error_code as the assembled code (e.g. "57").
+- Context: this furnace has been throwing error 57 (pressure-switch fault); a technician is booked. This check
+  runs every 15 minutes so the owner knows if it faults again.
 
-Report only what you can see. If the frames are dark, blurry, or the display is out of frame, say so."""
+Rules:
+- If the digit is too faint or blurry to read in most frames, set status "unclear" and describe what you see.
+- If only one digit of a multi-digit code is visible, or the order is ambiguous, set status "unclear" and do not
+  guess the missing part.
+- status "not_visible" only if the oval window/display is not in the frames at all.
+- Report anything unsafe or unusual that happens to be visible (water, scorch marks, smoke), otherwise leave
+  concerns empty. Report only what you can see."""
 
 
 QUOTES = "\"'\u201c\u201d\u2018\u2019"   # straight and curly (TextEdit "smart quotes")
@@ -132,7 +137,7 @@ MAX_FRAMES = 12
 
 def grab_frame(url, out_path):
     """Capture from the stream: out_path = one still (<=1280px) for the dashboard,
-    plus a burst of frames (<=800px) next to it, because the furnace display
+    plus a burst of frames (<=1280px) next to it, because the furnace display
     flashes its code one character at a time. Returns the burst paths in time
     order. Raises on failure."""
     burst_pattern = os.path.join(os.path.dirname(out_path), "burst_%02d.jpg")
@@ -142,7 +147,7 @@ def grab_frame(url, out_path):
     cmd += ["-i", url,
             "-map", "0:v:0", "-frames:v", "1", "-vf", "scale='min(1280,iw)':-2", "-q:v", "4", "-y", out_path,
             "-map", "0:v:0", "-t", str(BURST_SECONDS),
-            "-vf", f"fps={BURST_FPS},scale='min(800,iw)':-2", "-frames:v", str(MAX_FRAMES),
+            "-vf", f"fps={BURST_FPS},scale='min(1280,iw)':-2", "-frames:v", str(MAX_FRAMES),
             "-q:v", "4", "-y", burst_pattern]
     try:
         subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=60)
