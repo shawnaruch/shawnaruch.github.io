@@ -289,11 +289,13 @@ code { font-size: 13px; }
     const card = document.createElement("section");
     card.className = "card" + (n.online ? "" : " stale");
     const hv = n.hvac === "HEATING" ? "🔥 Heating" : n.hvac === "COOLING" ? "❄ Cooling" : "Idle";
+    // Nest stores set points in Celsius; its app shows whole °F (or half °C).
+    const sp = (f) => unit === "F" ? Math.round(f).toFixed(0) : (Math.round(toUnit(f) * 2) / 2).toFixed(1);
     const mode = n.mode === "OFF" ? "Off"
-      : n.eco ? `Eco · ${[n.heat_to, n.cool_to].filter((v) => v != null).map((v) => fmt(toUnit(v)) + u).join("–")}`
-      : n.mode === "HEAT" ? `Heat · set to ${fmt(toUnit(n.heat_to))}${u}`
-      : n.mode === "COOL" ? `Cool · set to ${fmt(toUnit(n.cool_to))}${u}`
-      : n.mode === "HEATCOOL" ? `Heat/Cool · ${fmt(toUnit(n.heat_to))}–${fmt(toUnit(n.cool_to))}${u}` : (n.mode || "–");
+      : n.eco ? `Eco · ${[n.heat_to, n.cool_to].filter((v) => v != null).map((v) => sp(v) + u).join("–")}`
+      : n.mode === "HEAT" ? `Heat · set to ${sp(n.heat_to)}${u}`
+      : n.mode === "COOL" ? `Cool · set to ${sp(n.cool_to)}${u}`
+      : n.mode === "HEATCOOL" ? `Heat/Cool · ${sp(n.heat_to)}–${sp(n.cool_to)}${u}` : (n.mode || "–");
     card.innerHTML = `
       <div class="card-head">
         <h2 title="${esc(n.name)}">${esc(n.name)}</h2>
