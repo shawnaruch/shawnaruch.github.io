@@ -16,6 +16,7 @@ import os
 import random
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
 
@@ -194,6 +195,104 @@ def fetch_mock():
     return now, out, gws, False
 
 
+# ---------------------------------------------------------------- Nest (optional)
+# Google Smart Device Management API. Only current state is available, so the
+# script keeps its own rolling history by carrying forward the previous file.
+NEST_HISTORY_HOURS = 24
+HVAC_CODE = {"OFF": 0, "HEATING": 1, "COOLING": 2}
+
+
+def c_to_f(c):
+    return None if c is None else round(c * 9 / 5 + 32, 1)
+
+
+def http_json(url, data=None, headers=None, method=None):
+    req = urllib.request.Request(url, data=data, method=method, headers={
+        "Accept": "application/json", "User-Agent": "home-dashboard/1.0", **(headers or {})})
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:
+            return json.load(r)
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode(errors="replace")[:300]
+        raise RuntimeError(f"{method or 'GET'} {url.split('?')[0]} -> HTTP {e.code}: {detail}") from None
+
+
+def nest_thermostats(project_id, client_id, client_secret, refresh_token):
+    tok = http_json("https://oauth2.googleapis.com/token", method="POST",
+                    data=urllib.parse.urlencode({
+                        "client_id": client_id, "client_secret": client_secret,
+                        "refresh_token": refresh_token, "grant_type": "refresh_token"}).encode(),
+                    headers={"Content-Type": "application/x-www-form-urlencoded"})["access_token"]
+    devices = http_json(
+        f"https://smartdevicemanagement.googleapis.com/v1/enterprises/{project_id}/devices",
+        headers={"Authorization": f"Bearer {tok}"}).get("devices", [])
+    out = []
+    for d in devices:
+        if d.get("type") != "sdm.devices.types.THERMOSTAT":
+            continue
+        t = d.get("traits", {})
+        g = lambda trait, key: t.get(f"sdm.devices.traits.{trait}", {}).get(key)
+        rooms = [r.get("displayName") for r in d.get("parentRelations", []) if r.get("displayName")]
+        eco = g("ThermostatEco", "mode")
+        in_eco = eco == "MANUAL_ECO"
+        out.append({
+            "id": d["name"].rsplit("/", 1)[-1],
+            "name": g("Info", "customName") or (rooms[0] if rooms else "Thermostat"),
+            "online": g("Connectivity", "status") == "ONLINE",
+            "ambient": c_to_f(g("Temperature", "ambientTemperatureCelsius")),
+            "humidity": g("Humidity", "ambientHumidityPercent"),
+            "mode": g("ThermostatMode", "mode"),          # HEAT / COOL / HEATCOOL / OFF
+            "eco": in_eco,
+            "hvac": g("ThermostatHvac", "status"),        # HEATING / COOLING / OFF
+            "heat_to": c_to_f(g("ThermostatEco", "heatCelsius") if in_eco else g("ThermostatTemperatureSetpoint", "heatCelsius")),
+            "cool_to": c_to_f(g("ThermostatEco", "coolCelsius") if in_eco else g("ThermostatTemperatureSetpoint", "coolCelsius")),
+        })
+    return out
+
+
+def add_nest(data, now, prev_path):
+    """Attach Nest thermostats + rolling history to data. Never raises."""
+    prev = {}
+    if prev_path and os.path.exists(prev_path):
+        try:
+            with open(prev_path) as f:
+                prev = {n["id"]: n for n in json.load(f).get("nest", [])}
+        except Exception as e:  # noqa: BLE001
+            print(f"nest: could not read previous file ({e})", file=sys.stderr)
+    env = [os.environ.get(k) for k in ("NEST_PROJECT_ID", "NEST_CLIENT_ID", "NEST_CLIENT_SECRET", "NEST_REFRESH_TOKEN")]
+    if not all(env):
+        if prev:
+            data["nest"] = list(prev.values())
+        return
+    try:
+        current = nest_thermostats(*env)
+        data.pop("nest_error", None)
+    except Exception as e:  # noqa: BLE001
+        print(f"nest: fetch failed, keeping previous data ({e})", file=sys.stderr)
+        data["nest_error"] = str(e)[:200]
+        data["nest"] = list(prev.values())
+        return
+    cutoff = now.timestamp() - NEST_HISTORY_HOURS * 3600
+    out = []
+    for n in current:
+        hist = [h for h in prev.get(n["id"], {}).get("history", []) if h[0] >= cutoff]
+        hist.append([int(now.timestamp()), n["ambient"], HVAC_CODE.get(n["hvac"], 0), n["heat_to"], n["cool_to"]])
+        out.append({**n, "observed": iso(now), "history": hist})
+    data["nest"] = out
+    print(f"nest: {len(out)} thermostat(s)")
+
+
+def mock_nest(now):
+    hist = []
+    for m in range(NEST_HISTORY_HOURS * 60, -1, -15):
+        ts = now - timedelta(minutes=m)
+        heating = (ts.minute // 15) % 3 == 0 and 5 <= ts.hour <= 22
+        hist.append([int(ts.timestamp()), round(67 + math.sin(m / 90) * 1.2, 1), 1 if heating else 0, 68.0, None])
+    return [{"id": "mock-nest", "name": "Hallway", "online": True, "ambient": hist[-1][1], "humidity": 44,
+             "mode": "HEAT", "eco": False, "hvac": "HEATING" if hist[-1][2] else "OFF",
+             "heat_to": 68.0, "cool_to": None, "observed": iso(now), "history": hist}]
+
+
 def main():
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     out_path = args[0] if args else "latest.json"
@@ -206,6 +305,10 @@ def main():
         "sensors": sorted(sensors, key=lambda s: (s["name"] or "").lower()),
         "gateways": gateways,
     }
+    if "--mock" in sys.argv:
+        data["nest"] = mock_nest(now)
+    else:
+        add_nest(data, now, os.environ.get("PREV_JSON"))
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
     with open(out_path, "w") as f:
         json.dump(data, f, separators=(",", ":"))

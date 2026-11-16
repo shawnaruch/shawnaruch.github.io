@@ -23,10 +23,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Fetch from SensorPush
+      # Previous file, so Nest (which has no history API) can keep a rolling log.
+      - name: Get previous data
+        run: |
+          git fetch -q --depth=1 origin sensorpush-data && \
+            git show FETCH_HEAD:latest.json > "$RUNNER_TEMP/prev.json" || echo "no previous data"
+
+      - name: Fetch from SensorPush and Nest
         env:
           SENSORPUSH_EMAIL: ${{ secrets.SENSORPUSH_EMAIL }}
           SENSORPUSH_PASSWORD: ${{ secrets.SENSORPUSH_PASSWORD }}
+          NEST_PROJECT_ID: ${{ secrets.NEST_PROJECT_ID }}
+          NEST_CLIENT_ID: ${{ secrets.NEST_CLIENT_ID }}
+          NEST_CLIENT_SECRET: ${{ secrets.NEST_CLIENT_SECRET }}
+          NEST_REFRESH_TOKEN: ${{ secrets.NEST_REFRESH_TOKEN }}
+          PREV_JSON: ${{ runner.temp }}/prev.json
         run: python3 scripts/fetch_sensorpush.py "$RUNNER_TEMP/out/latest.json"
 
       - name: Publish to sensorpush-data branch
