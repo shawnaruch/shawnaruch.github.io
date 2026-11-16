@@ -86,6 +86,11 @@ button:hover { border-color: var(--muted); }
 .alert strong { display: block; font-size: 15px; margin-bottom: 2px; }
 .alert p { margin: 0; color: var(--text-2); font-size: 14px; }
 .alert[hidden] { display: none; }
+.cam-card { max-width: 720px; }
+.cam-img { display: block; width: 100%; height: auto; border-radius: 10px; margin: 10px 0 4px; background: var(--grid); }
+.cam-fields { margin: 8px 0 0; display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 14px; }
+.cam-fields dt { color: var(--text-2); }
+.cam-fields dd { margin: 0; }
 .divider { border: 0; border-top: 1px solid var(--grid); margin: 20px 0 14px; }
 .divider[hidden], .section[hidden] { display: none; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
@@ -141,6 +146,11 @@ code { font-size: 13px; }
     <div id="nest-cards" class="grid" aria-live="polite"></div>
   </details>
   <hr class="divider" id="sec-divider" hidden>
+  <details class="section" id="sec-cam" open hidden>
+    <summary><span class="chev" aria-hidden="true">▸</span><h2>Furnace camera</h2><span class="sec-meta" id="cam-meta"></span></summary>
+    <div id="cam-cards" class="grid" style="grid-template-columns: minmax(0, 720px);"></div>
+  </details>
+  <hr class="divider" id="cam-divider" hidden>
   <details class="section" id="sec-sensors" open>
     <summary><span class="chev" aria-hidden="true">▸</span><h2>Sensors</h2><span class="sec-meta" id="sensor-meta"></span></summary>
     <div id="cards" class="grid" aria-live="polite"></div>
@@ -153,6 +163,11 @@ code { font-size: 13px; }
   const DEFAULT_URL =
     "https://raw.githubusercontent.com/shawnaruch/shawnaruch.github.io/sensorpush-data/latest.json";
   const DATA_URL = new URLSearchParams(location.search).get("data") || DEFAULT_URL;
+  // Published from the Mac mini by scripts/camera/furnace_cam.py.
+  const CAM_BASE = new URLSearchParams(location.search).get("cam") ||
+    "https://raw.githubusercontent.com/shawnaruch/shawnaruch.github.io/camera-data/";
+  const CAM_STALE_MIN = 45;
+  let cam = null;
   const STALE_MIN = 30;          // reading older than this = sensor flagged
   const LOW_BATTERY_V = 2.5;     // SensorPush coin cells read ~3.0V new
   const REFRESH_MS = 5 * 60 * 1000;
@@ -347,6 +362,49 @@ code { font-size: 13px; }
     return card;
   }
 
+  function renderCamera() {
+    const sec = $("sec-cam"), div = $("cam-divider"), root = $("cam-cards");
+    sec.hidden = div.hidden = !cam;
+    if (!cam) return;
+    const age = minutesSince(cam.captured_at);
+    const late = age > CAM_STALE_MIN;
+    const st = cam.status;
+    const pill = st === "error" ? ["var(--critical)", `⚠ Error ${cam.error_code || ""}`.trim()]
+      : st === "normal" ? ["var(--good)", "Normal"]
+      : st === "unclear" ? ["var(--warning)", "Display not readable"]
+      : st === "not_visible" ? ["var(--warning)", "Furnace not in view"]
+      : ["var(--warning)", "Camera offline"];
+    $("cam-meta").textContent = `${pill[1]} · ${ago(cam.captured_at)}`;
+    const img = cam.image
+      ? `<img class="cam-img" src="${CAM_BASE}${cam.image}?t=${encodeURIComponent(cam.captured_at)}" alt="${esc(cam.summary || "Furnace camera")}" loading="lazy">
+         ${cam.image_stale ? `<div class="meta">⚠ Last good image, not current</div>` : ""}`
+      : `<p class="meta">${st === "not_visible" ? "The furnace isn't in view, so the image is not published." : "No image."}</p>`;
+    const fields = [
+      cam.display_reading && ["Display", esc(cam.display_reading)],
+      cam.concerns && ["⚠ Check", esc(cam.concerns)],
+      cam.error && ["Problem", esc(cam.error)],
+    ].filter(Boolean).map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("");
+    root.innerHTML = `
+      <section class="card cam-card">
+        <div class="card-head">
+          <h2>Furnace</h2>
+          <span class="badge"><span class="dot" style="background:${pill[0]}"></span>${esc(pill[1])}</span>
+        </div>
+        ${img}
+        <p style="margin:8px 0 0">${esc(cam.summary || "")}</p>
+        ${fields ? `<dl class="cam-fields">${fields}</dl>` : ""}
+        <div class="meta">Checked ${ago(cam.captured_at)}${late ? " · ⚠ the Mac mini hasn't reported recently" : ""}${cam.model ? ` · read by ${esc(cam.model)}` : ""}</div>
+      </section>`;
+  }
+
+  async function loadCamera() {
+    try {
+      const res = await fetch(`${CAM_BASE}camera.json?t=${Math.floor(Date.now() / 60000)}`, { cache: "no-store" });
+      cam = res.ok ? await res.json() : null;
+    } catch (_) { cam = null; }
+    renderCamera();
+  }
+
   function statusFor(s) {
     const age = ageAtPull(s.latest?.observed);
     if (!s.latest) return { color: "var(--critical)", text: "No data", stale: true };
@@ -445,6 +503,7 @@ code { font-size: 13px; }
   }
 
   async function load() {
+    loadCamera();
     $("updated").textContent = data ? $("updated").textContent : "Loading…";
     try {
       // raw.githubusercontent caches ~5 min; the query string busts browser cache.
@@ -472,7 +531,7 @@ code { font-size: 13px; }
     try { localStorage.setItem("sp-range", String(rangeH)); } catch (_) {}
     render();
   });
-  for (const id of ["sec-nest", "sec-sensors"]) {
+  for (const id of ["sec-nest", "sec-cam", "sec-sensors"]) {
     const el = $(id);
     try { if (localStorage.getItem("sp-" + id) === "closed") el.open = false; } catch (_) {}
     el.addEventListener("toggle", () => {
@@ -482,7 +541,7 @@ code { font-size: 13px; }
   $("refresh").addEventListener("click", load);
   document.addEventListener("visibilitychange", () => { if (!document.hidden) load(); });
   setInterval(load, REFRESH_MS);
-  setInterval(render, 60 * 1000); // keep "x min ago" labels honest
+  setInterval(() => { render(); renderCamera(); }, 60 * 1000); // keep "x min ago" labels honest
   load();
 })();
 </script>
