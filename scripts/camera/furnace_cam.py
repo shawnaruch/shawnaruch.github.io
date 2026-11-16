@@ -116,6 +116,10 @@ How to report:
 
 Rules:
 - If the digit is too faint or blurry to read in most frames, set status "unclear" and describe what you see.
+- Exception, per the owner: a steady mark that looks like an "F" in most frames, even faint or partial, IS "F"
+  (continuous fan). Report status "normal", display_reading "F", code_meaning "continuous fan", and say in the
+  summary that it was read from a faint image. This does not apply if digits flash alongside it (that is a fault
+  code: read it, or set "unclear" if you can't).
 - If only one digit of a multi-digit code is visible, or the order is ambiguous, set status "unclear" and do not
   guess the missing part.
 - status "not_visible" only if the oval window/display is not in the frames at all.
