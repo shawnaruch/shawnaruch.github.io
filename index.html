@@ -67,6 +67,19 @@ button:hover { border-color: var(--muted); }
   background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 4px 12px;
 }
 .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.section { margin: 0; }
+.section > summary {
+  list-style: none; cursor: pointer; display: flex; align-items: baseline; gap: 10px;
+  padding: 6px 0 12px; user-select: none; border-radius: 8px;
+}
+.section > summary::-webkit-details-marker { display: none; }
+.section > summary:focus-visible { outline: 2px solid var(--hum); outline-offset: 2px; }
+.section > summary h2 { font-size: 18px; font-weight: 650; margin: 0; letter-spacing: -0.01em; }
+.section > summary .chev { display: inline-block; width: 14px; color: var(--text-2); transition: transform .15s; transform: rotate(90deg); }
+.section:not([open]) > summary .chev { transform: rotate(0deg); }
+.section > summary .sec-meta { color: var(--text-2); font-size: 13px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.divider { border: 0; border-top: 1px solid var(--grid); margin: 20px 0 14px; }
+.divider[hidden], .section[hidden] { display: none; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
 .card {
   background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
@@ -114,7 +127,15 @@ code { font-size: 13px; }
     <button id="refresh" type="button">Refresh</button>
   </header>
   <div class="summary" id="summary"></div>
-  <div id="cards" class="grid" aria-live="polite"></div>
+  <details class="section" id="sec-nest" open hidden>
+    <summary><span class="chev" aria-hidden="true">▸</span><h2>Thermostat</h2><span class="sec-meta" id="nest-meta"></span></summary>
+    <div id="nest-cards" class="grid" aria-live="polite"></div>
+  </details>
+  <hr class="divider" id="sec-divider" hidden>
+  <details class="section" id="sec-sensors" open>
+    <summary><span class="chev" aria-hidden="true">▸</span><h2>Sensors</h2><span class="sec-meta" id="sensor-meta"></span></summary>
+    <div id="cards" class="grid" aria-live="polite"></div>
+  </details>
 </div>
 
 <script>
@@ -347,10 +368,19 @@ code { font-size: 13px; }
       pills.push(`<span class="pill" title="${esc(data.nest_error)}"><span class="dot" style="background:var(--warning)"></span>⚠ Nest didn't update on the last pull</span>`);
     $("summary").innerHTML = pills.join("");
 
+    const nest = data.nest || [];
+    const nestRoot = $("nest-cards");
+    nestRoot.innerHTML = "";
+    nest.forEach((n) => nestRoot.appendChild(nestCard(n)));
+    $("sec-nest").hidden = !nest.length;
+    $("sec-divider").hidden = !nest.length;
+    $("nest-meta").textContent = nest.map((n) =>
+      `${n.name} · ${n.hvac === "HEATING" ? "Heating" : n.hvac === "COOLING" ? "Cooling" : "Idle"} · ${fmt(toUnit(n.ambient))}${u}`).join("  ·  ");
+    $("sensor-meta").textContent = sensors.length ? `${sensors.length - offline} of ${sensors.length} reporting` : "";
+
     const root = $("cards");
     root.innerHTML = "";
-    for (const n of data.nest || []) root.appendChild(nestCard(n));
-    if (!sensors.length && !(data.nest || []).length) {
+    if (!sensors.length) {
       root.innerHTML = `<div class="empty">No active sensors in the feed.</div>`;
       return;
     }
@@ -418,6 +448,13 @@ code { font-size: 13px; }
     try { localStorage.setItem("sp-range", String(rangeH)); } catch (_) {}
     render();
   });
+  for (const id of ["sec-nest", "sec-sensors"]) {
+    const el = $(id);
+    try { if (localStorage.getItem("sp-" + id) === "closed") el.open = false; } catch (_) {}
+    el.addEventListener("toggle", () => {
+      try { localStorage.setItem("sp-" + id, el.open ? "open" : "closed"); } catch (_) {}
+    });
+  }
   $("refresh").addEventListener("click", load);
   document.addEventListener("visibilitychange", () => { if (!document.hidden) load(); });
   setInterval(load, REFRESH_MS);
