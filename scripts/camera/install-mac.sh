@@ -66,7 +66,7 @@ launchctl bootstrap "gui/$(id -u)" "$PLIST"
 
 echo
 echo "Done. Next:"
-echo "  1. Edit settings:   open -e $CFG_DIR/env"
+echo "  1. Edit settings (plain-text editor, not TextEdit):   nano $CFG_DIR/env"
 echo "  2. Test (no publish):  $APP_DIR/venv/bin/python $APP_DIR/furnace_cam.py --dry-run"
 echo "  3. Watch the log:   tail -f $CFG_DIR/run.log"
 echo "  Keep the Mac mini awake: System Settings > Energy > 'Prevent automatic sleeping' on."
