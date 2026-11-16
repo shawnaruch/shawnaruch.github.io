@@ -93,16 +93,24 @@ set status "unclear", and do not guess the missing part.
 Report only what you can see. If the frames are dark, blurry, or the display is out of frame, say so."""
 
 
+QUOTES = "\"'\u201c\u201d\u2018\u2019"   # straight and curly (TextEdit "smart quotes")
+INVISIBLE = "\ufeff\u200b\u200c\u200d\u2060\u00a0"
+
+
 def load_env():
     path = os.path.join(CONFIG_DIR, "env")
     if not os.path.exists(path):
         return
-    with open(path) as f:
-        for line in f:
-            line = line.strip()
-            if line and not line.startswith("#") and "=" in line:
-                k, v = line.split("=", 1)
-                os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+    with open(path, encoding="utf-8", errors="replace") as f:
+        text = f.read()
+    if text.lstrip().startswith("{\\rtf"):
+        sys.exit(f"{path} was saved as rich text (RTF). Recreate it as plain text: "
+                 f"use  nano {path}  instead of TextEdit.")
+    for line in text.splitlines():
+        line = "".join(ch for ch in line if ch not in INVISIBLE).strip()
+        if line and not line.startswith("#") and "=" in line:
+            k, v = line.split("=", 1)
+            os.environ.setdefault(k.strip(), v.strip().strip(QUOTES).strip())
 
 
 def now_iso():
@@ -251,9 +259,15 @@ def alerts(result, state):
 def main():
     dry = "--dry-run" in sys.argv
     load_env()
-    url = os.environ.get("CAMERA_URL")
-    if not url:
-        sys.exit(f"CAMERA_URL not set (put it in {CONFIG_DIR}/env)")
+    url = os.environ.get("CAMERA_URL", "")
+    if "://" in url:  # TextEdit may auto-capitalize "rtsp://" to "Rtsp://"
+        scheme, rest = url.split("://", 1)
+        url = f"{scheme.lower()}://{rest}"
+        os.environ["CAMERA_URL"] = url
+    if not url.startswith(("rtsp://", "rtsps://", "/", "file:")):
+        shown = url.split("@")[-1] if "@" in url else url
+        sys.exit(f"CAMERA_URL in {CONFIG_DIR}/env doesn't look like rtsp://USER:PASS@IP:554/live0 "
+                 f"(it starts with {url[:7]!r}, ends with {shown[-25:]!r}). Fix it with:  nano {CONFIG_DIR}/env")
     os.makedirs(CONFIG_DIR, exist_ok=True)
     state = load_state()
     tmp = tempfile.mkdtemp(prefix="furnace-frame-")
