@@ -24,6 +24,7 @@ Usage: furnace_cam.py            one run
 import base64
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -115,6 +116,7 @@ def load_env():
         line = "".join(ch for ch in line if ch not in INVISIBLE).strip()
         if line and not line.startswith("#") and "=" in line:
             k, v = line.split("=", 1)
+            v = re.sub(r"\s+#.*$", "", v)  # inline comment: "VALUE   # note" (a '#' inside a value is kept)
             os.environ.setdefault(k.strip(), v.strip().strip(QUOTES).strip())
 
 

@@ -37,7 +37,8 @@ CAMERA_URL=rtsp://USER:PASS@192.168.4.109:554/live0
 ANTHROPIC_API_KEY=
 GITHUB_TOKEN=
 NTFY_TOPIC=
-# CAMERA_MODEL=claude-opus-5-5   # stronger reader, ~40x the cost
+# Stronger reader for a faint display, ~40x the cost: remove the "# " below to enable
+# CAMERA_MODEL=claude-opus-5-5
 EOF
   echo "==> Created $CFG_DIR/env  <-- fill this in, then re-run the test below"
 fi
