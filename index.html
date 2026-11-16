@@ -81,6 +81,9 @@ button:hover { border-color: var(--muted); }
 .temp small { font-size: 20px; font-weight: 500; color: var(--text-2); letter-spacing: 0; }
 .hum { font-size: 22px; font-weight: 550; font-variant-numeric: tabular-nums; }
 .hum small { font-size: 13px; color: var(--text-2); font-weight: 400; }
+.trend { font-size: 14px; font-weight: 550; color: var(--text); display: inline-flex; align-items: center; gap: 4px;
+  border: 1px solid var(--border); border-radius: 999px; padding: 2px 10px; align-self: center; white-space: nowrap; }
+.trend small { font-weight: 400; color: var(--text-2); font-size: 12px; }
 .meta { color: var(--text-2); font-size: 13px; margin-top: 6px; font-variant-numeric: tabular-nums; }
 .chart { position: relative; margin-top: 12px; }
 .chart-label { font-size: 12px; color: var(--muted); display: flex; justify-content: space-between; margin-bottom: 2px; }
@@ -106,6 +109,7 @@ code { font-size: 13px; }
     <h1>Home Sensors</h1>
     <span class="updated" id="updated">Loading…</span>
     <span class="spacer"></span>
+    <button id="range" type="button" aria-label="Toggle chart time range">6h</button>
     <button id="unit" type="button" aria-label="Toggle temperature unit">°F</button>
     <button id="refresh" type="button">Refresh</button>
   </header>
@@ -127,6 +131,27 @@ code { font-size: 13px; }
   let unit = "F";
   try { unit = localStorage.getItem("sp-unit") || "F"; } catch (_) {}
   let data = null;
+  let rangeH = 6;
+  try { rangeH = Number(localStorage.getItem("sp-range")) || 6; } catch (_) {}
+  const TREND_WINDOW_S = 3600;   // fit the trend to the last hour
+  const STEADY_F_PER_H = 0.5;    // below this rate (°F/hr) counts as steady
+
+  // Least-squares slope of temperature over the last hour of the series.
+  function trendFor(series) {
+    const pts = series.filter((p) => p[1] != null);
+    if (pts.length < 4) return null;
+    const tEnd = pts[pts.length - 1][0];
+    const win = pts.filter((p) => p[0] >= tEnd - TREND_WINDOW_S);
+    if (win.length < 4) return null;
+    const n = win.length;
+    const mt = win.reduce((a, p) => a + p[0], 0) / n, my = win.reduce((a, p) => a + p[1], 0) / n;
+    let num = 0, den = 0;
+    for (const [t, y] of win) { num += (t - mt) * (y - my); den += (t - mt) ** 2; }
+    if (!den) return null;
+    const b = num / den;  // °F per second
+    const t0 = win[0][0];
+    return { perHour: b * 3600, t0, t1: tEnd, y0: my + b * (t0 - mt), y1: my + b * (tEnd - mt) };
+  }
 
   const toUnit = (f) => f == null ? null : unit === "F" ? f : (f - 32) * 5 / 9;
   const toUnitDelta = (d) => d == null ? null : unit === "F" ? d : d * 5 / 9;
@@ -151,8 +176,9 @@ code { font-size: 13px; }
   const timeOf = (epoch) => new Date(epoch * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 
   // Single-series line+area chart with a hover crosshair. One axis per chart.
-  function chart(series, idx, color, label, unitLabel, convert) {
-    const pts = series.filter((p) => p[idx] != null).map((p) => [p[0], convert(p[idx])]);
+  function chart(series, idx, color, label, unitLabel, convert, trend) {
+    const tLast = series.length ? series[series.length - 1][0] : 0;
+    const pts = series.filter((p) => p[idx] != null && p[0] >= tLast - rangeH * 3600).map((p) => [p[0], convert(p[idx])]);
     const wrap = document.createElement("div");
     wrap.className = "chart" + (idx === 2 ? " hum-chart" : "");
     if (pts.length < 2) {
@@ -163,6 +189,8 @@ code { font-size: 13px; }
     const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
     const x0 = xs[0], x1 = xs[xs.length - 1];
     let lo = Math.min(...ys), hi = Math.max(...ys);
+    const ty0 = trend ? convert(trend.y0) : null, ty1 = trend ? convert(trend.y1) : null;
+    if (trend) { lo = Math.min(lo, ty0, ty1); hi = Math.max(hi, ty0, ty1); }
     if (hi - lo < 2) { const mid = (hi + lo) / 2; lo = mid - 1; hi = mid + 1; }
     const sx = (x) => ((x - x0) / (x1 - x0 || 1)) * W;
     const sy = (y) => pad + (1 - (y - lo) / (hi - lo)) * (H - pad * 2);
@@ -179,12 +207,14 @@ code { font-size: 13px; }
     flush();
     const minV = Math.min(...ys), maxV = Math.max(...ys);
     wrap.innerHTML = `
-      <div class="chart-label"><span>${label} · 24h</span></div>
+      <div class="chart-label"><span>${label} · ${rangeH}h</span>${trend ? `<span>dashed = last-hour trend</span>` : ""}</div>
       <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img"
            aria-label="${label} last 24 hours, range ${fmt(minV)} to ${fmt(maxV)}${unitLabel}">
         <line x1="0" x2="${W}" y1="${H - 0.5}" y2="${H - 0.5}" stroke="var(--grid)" stroke-width="1" vector-effect="non-scaling-stroke"/>
         <path d="${area}" fill="${color}" opacity="0.12"/>
         <path d="${d}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>
+        ${trend ? `<line x1="${sx(trend.t0).toFixed(1)}" y1="${sy(ty0).toFixed(1)}" x2="${sx(trend.t1).toFixed(1)}" y2="${sy(ty1).toFixed(1)}"
+            stroke="var(--text)" stroke-width="2" stroke-dasharray="5 3" stroke-linecap="round" vector-effect="non-scaling-stroke"/>` : ""}
         <line class="xh" y1="0" y2="${H}" stroke="var(--muted)" stroke-width="1" vector-effect="non-scaling-stroke" visibility="hidden"/>
       </svg>
       <div class="tip"></div>`;
@@ -229,6 +259,7 @@ code { font-size: 13px; }
     if (!data) return;
     const u = "°" + unit;
     $("unit").textContent = u;
+    $("range").textContent = `${rangeH}h`;
     $("updated").textContent = `Data pulled ${ago(data.generated_at)}`;
     $("updated").title = new Date(data.generated_at).toLocaleString();
 
@@ -259,12 +290,18 @@ code { font-size: 13px; }
       const L = s.latest || {};
       const card = document.createElement("section");
       card.className = "card" + (st.stale ? " stale" : "");
-      const trend = toUnitDelta(s.trend_1h);
-      const arrow = trend == null ? "" : trend > 0.3 ? "↑" : trend < -0.3 ? "↓" : "→";
+      const tr = trendFor(s.series || []);
+      let chip = "";
+      if (tr && !st.stale) {
+        const rate = toUnitDelta(tr.perHour);
+        const steady = Math.abs(tr.perHour) < STEADY_F_PER_H;
+        const word = steady ? "Steady" : tr.perHour > 0 ? "Rising" : "Falling";
+        const arrow = steady ? "→" : tr.perHour > 0 ? "↑" : "↓";
+        chip = `<span class="trend" title="Least-squares fit over the last hour">${arrow} ${word} <small>${rate > 0 ? "+" : ""}${fmt(rate)}°/hr</small></span>`;
+      }
       const extras = [];
       if (L.dewpoint != null) extras.push(`Dew point ${fmt(toUnit(L.dewpoint))}${u}`);
       if (L.barometric_pressure != null) extras.push(`${fmt(L.barometric_pressure, 2)} inHg`);
-      if (trend != null) extras.push(`${arrow} ${trend > 0 ? "+" : ""}${fmt(trend)}° vs 1h ago`);
       const st24 = s.stats_24h || {};
       card.innerHTML = `
         <div class="card-head">
@@ -274,10 +311,11 @@ code { font-size: 13px; }
         <div class="hero">
           <span class="temp">${fmt(toUnit(L.temperature))}<small>${u}</small></span>
           <span class="hum">${fmt(L.humidity, 0)}<small>% RH</small></span>
+          ${chip}
         </div>
         <div class="meta">${extras.join(" · ") || "&nbsp;"}</div>
         <div class="meta">24h: ${fmt(toUnit(st24.temp_min))}–${fmt(toUnit(st24.temp_max))}${u}, ${fmt(st24.hum_min, 0)}–${fmt(st24.hum_max, 0)}% RH</div>`;
-      card.appendChild(chart(s.series || [], 1, "var(--temp)", "Temperature", u, toUnit));
+      card.appendChild(chart(s.series || [], 1, "var(--temp)", "Temperature", u, toUnit, tr && !st.stale ? tr : null));
       card.appendChild(chart(s.series || [], 2, "var(--hum)", "Humidity", "%", (v) => v));
       root.appendChild(card);
     });
@@ -304,6 +342,11 @@ code { font-size: 13px; }
   $("unit").addEventListener("click", () => {
     unit = unit === "F" ? "C" : "F";
     try { localStorage.setItem("sp-unit", unit); } catch (_) {}
+    render();
+  });
+  $("range").addEventListener("click", () => {
+    rangeH = rangeH === 6 ? 24 : 6;
+    try { localStorage.setItem("sp-range", String(rangeH)); } catch (_) {}
     render();
   });
   $("refresh").addEventListener("click", load);
