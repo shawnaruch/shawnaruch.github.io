@@ -8,6 +8,11 @@ on:
     # Off-the-hour minutes: GitHub drops :00 runs first when its scheduler is busy.
     - cron: "7,22,37,52 * * * *"
   workflow_dispatch:
+    inputs:
+      test_alert:
+        description: "Also send a test push to the ntfy topic"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -22,6 +27,20 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
+
+      - name: Send test alert
+        if: ${{ inputs.test_alert }}
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: |
+          if [ -z "$NTFY_TOPIC" ]; then
+            echo "::error::NTFY_TOPIC secret is not set, so heat alerts can't reach a phone."; exit 1
+          fi
+          curl -fsS -H "Title: Test from your home dashboard" -H "Priority: high" \
+            -H "Tags: white_check_mark" -H "Click: https://home.esemay.com" \
+            -d "If you can read this, no-heat alerts from the dashboard will reach your phone." \
+            "https://ntfy.sh/$NTFY_TOPIC" > /dev/null
+          echo "Test alert sent."
 
       # Previous file, so Nest (which has no history API) can keep a rolling log.
       - name: Get previous data
