@@ -15,7 +15,7 @@ Secrets live in ~/.config/furnace-cam/env (never in the repo):
   ANTHROPIC_API_KEY  Claude API key
   GITHUB_TOKEN       fine-grained token: this repo only, Contents read/write
   NTFY_TOPIC         optional, same topic as the dashboard's alerts
-Optional: CAMERA_MODEL (default claude-opus-5-5), GITHUB_REPO.
+Optional: CAMERA_MODEL (default claude-haiku-5-5), GITHUB_REPO.
 
 Usage: furnace_cam.py            one run
        furnace_cam.py --dry-run  analyze but don't publish or push alerts
@@ -131,12 +131,10 @@ def analyze(jpeg_path, client=None):
     client = client or anthropic.Anthropic()
     with open(jpeg_path, "rb") as f:
         data = base64.standard_b64encode(f.read()).decode("utf-8")
-    model = os.environ.get("CAMERA_MODEL", "claude-opus-5-5")
-    response = client.beta.messages.create(
+    model = os.environ.get("CAMERA_MODEL") or "claude-haiku-5-5"
+    request = dict(
         model=model,
         max_tokens=4000,
-        betas=["server-side-fallback-2026-07-01"],
-        fallbacks="default",  # if the request is declined, the API retries on a fallback model
         output_config={"effort": "low", "format": {"type": "json_schema", "schema": SCHEMA}},
         messages=[{
             "role": "user",
@@ -146,6 +144,13 @@ def analyze(jpeg_path, client=None):
             ],
         }],
     )
+    if "haiku" in model:
+        # Haiku has no server-side refusal fallback.
+        response = client.messages.create(**request)
+    else:
+        # Larger models: if a request is declined, the API retries on a fallback model.
+        response = client.beta.messages.create(
+            **request, betas=["server-side-fallback-2026-07-01"], fallbacks="default")
     if response.stop_reason == "refusal":
         raise RuntimeError("analysis declined by the model")
     text = next(b.text for b in response.content if b.type == "text")
