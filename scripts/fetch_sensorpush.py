@@ -282,6 +282,91 @@ def add_nest(data, now, prev_path):
     print(f"nest: {len(out)} thermostat(s)")
 
 
+# ------------------------------------------------- Heat-call check + alerts
+# During a heat call, a working furnace pushes the supply vent well above the
+# return (this house: +35-42F). If the supply hasn't been at least
+# MIN_DELTA_F above the return at any point in the last WINDOW_MIN minutes of
+# a call that has lasted WINDOW_MIN or longer, raise an alert.
+SUPPLY_NAME = os.environ.get("SUPPLY_SENSOR", "Living Room Supply")
+RETURN_NAME = os.environ.get("RETURN_SENSOR", "Living Room Return")
+MIN_DELTA_F = float(os.environ.get("HEAT_MIN_DELTA_F", "15"))
+WINDOW_MIN = int(os.environ.get("HEAT_WINDOW_MIN", "20"))
+
+
+def heat_check(data, now, prev_heat):
+    nest = (data.get("nest") or [None])[0]
+    if not nest or not nest.get("history"):
+        return None
+    hist = nest["history"]
+    calling = hist[-1][2] == 1
+    out = {"calling": calling, "supply_sensor": SUPPLY_NAME, "return_sensor": RETURN_NAME,
+           "min_delta_f": MIN_DELTA_F, "window_min": WINDOW_MIN, "alert": False}
+    if calling:
+        i = len(hist) - 1
+        while i > 0 and hist[i - 1][2] == 1:
+            i -= 1
+        out["since"] = hist[i][0]
+        out["since_is_lower_bound"] = i == 0    # call began before our history did
+        out["minutes"] = int((now.timestamp() - hist[i][0]) // 60)
+    by_name = {s["name"]: s for s in data.get("sensors", [])}
+    sup, ret = by_name.get(SUPPLY_NAME), by_name.get(RETURN_NAME)
+    if sup and ret and sup.get("latest") and ret.get("latest"):
+        out["supply_f"] = sup["latest"]["temperature"]
+        out["return_f"] = ret["latest"]["temperature"]
+        if out["supply_f"] is not None and out["return_f"] is not None:
+            out["delta_f"] = round(out["supply_f"] - out["return_f"], 1)
+        r = {p[0]: p[1] for p in ret.get("series", []) if p[1] is not None}
+        cutoff = now.timestamp() - WINDOW_MIN * 60
+        deltas = [p[1] - r[p[0]] for p in sup.get("series", []) if p[0] >= cutoff - BUCKET_MIN * 60
+                  and p[1] is not None and p[0] in r]
+        if out.get("delta_f") is not None:
+            deltas.append(out["delta_f"])
+        out["max_delta_recent_f"] = round(max(deltas), 1) if deltas else None
+        if calling and out.get("minutes", 0) >= WINDOW_MIN and out["max_delta_recent_f"] is not None \
+                and out["max_delta_recent_f"] < MIN_DELTA_F:
+            out["alert"] = True
+    # Carry alert bookkeeping so a push goes out once per heat call.
+    prev_heat = prev_heat or {}
+    out["notified_for"] = prev_heat.get("notified_for")
+    return out
+
+
+def notify(heat, now):
+    topic = os.environ.get("NTFY_TOPIC")
+    server = os.environ.get("NTFY_SERVER", "https://ntfy.sh").rstrip("/")
+    key = heat.get("since")
+    if heat["alert"] and heat.get("notified_for") != key:
+        mins = heat.get("minutes", 0)
+        title = "Heat on but no warm air"
+        msg = (f"The thermostat has called for heat for {'at least ' if heat.get('since_is_lower_bound') else ''}"
+               f"{mins} min, but {heat['supply_sensor']} is {heat.get('supply_f')}F, only "
+               f"{heat.get('max_delta_recent_f')}F above {heat['return_sensor']} "
+               f"(a running furnace is usually 30F+ above). Check the furnace.")
+        prio = "high"
+        new_mark = key
+    elif not heat["alert"] and heat.get("notified_for") and (not heat["calling"] or (heat.get("max_delta_recent_f") or 0) >= MIN_DELTA_F):
+        title, prio, new_mark = "Heat is working again", "default", None
+        msg = f"{heat['supply_sensor']} is {heat.get('supply_f')}F" + (
+            f", {heat.get('delta_f')}F above {heat['return_sensor']}." if heat.get("delta_f") is not None else ".")
+        if not heat["calling"]:
+            title, msg = "Heat call ended", "The thermostat stopped calling for heat. Earlier no-heat alert cleared."
+    else:
+        return
+    if not topic:
+        print(f"alert ({title}) not pushed: NTFY_TOPIC not set", file=sys.stderr)
+        heat["notified_for"] = new_mark
+        return
+    try:
+        req = urllib.request.Request(f"{server}/{topic}", data=msg.encode(), method="POST", headers={
+            "Title": title, "Priority": prio, "Tags": "warning" if prio == "high" else "white_check_mark",
+            "Click": "https://home.esemay.com", "User-Agent": "home-dashboard/1.0"})
+        urllib.request.urlopen(req, timeout=30).read()
+        heat["notified_for"] = new_mark
+        print(f"pushed alert: {title}")
+    except Exception as e:  # noqa: BLE001  (retry next run)
+        print(f"push failed: {e}", file=sys.stderr)
+
+
 def mock_nest(now):
     hist = []
     for m in range(NEST_HISTORY_HOURS * 60, -1, -15):
@@ -309,6 +394,19 @@ def main():
         data["nest"] = mock_nest(now)
     else:
         add_nest(data, now, os.environ.get("PREV_JSON"))
+    prev_heat = None
+    pj = os.environ.get("PREV_JSON")
+    if pj and os.path.exists(pj):
+        try:
+            with open(pj) as f:
+                prev_heat = json.load(f).get("heat")
+        except Exception:  # noqa: BLE001
+            pass
+    heat = heat_check(data, now, prev_heat)
+    if heat:
+        if "--mock" not in sys.argv:
+            notify(heat, now)
+        data["heat"] = heat
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
     with open(out_path, "w") as f:
         json.dump(data, f, separators=(",", ":"))
