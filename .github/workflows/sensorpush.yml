@@ -1,7 +1,7 @@
 name: SensorPush data
 
 # Pulls SensorPush readings and force-pushes them as a single commit to the
-# orphan branch `sensorpush-data`. The dashboard at /home/ reads that file
+# orphan branch `sensorpush-data`. The dashboard (index.html) reads that file
 # from raw.githubusercontent.com, so main's history never grows.
 on:
   schedule:
