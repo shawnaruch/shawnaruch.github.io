@@ -54,11 +54,15 @@ SCHEMA = {
         },
         "display_reading": {
             "type": "string",
-            "description": "What the display shows across the frames, in order (e.g. '5, 7, blank, 5, 7'). Empty if none visible.",
+            "description": "What the display shows across the frames, in order (e.g. 'H' when steady, or '5, 7, blank, 5, 7'). Empty if none visible.",
         },
         "error_code": {
             "type": "string",
             "description": "The error/fault code if one is shown, digits only (e.g. '57'). Empty if none.",
+        },
+        "code_meaning": {
+            "type": "string",
+            "description": "Meaning of the status or fault code from the list (e.g. 'high-fire gas heat', 'high pressure switch open'). Empty if unreadable.",
         },
         "summary": {
             "type": "string",
@@ -70,25 +74,45 @@ SCHEMA = {
                            "disconnected or bypassed wires. Empty if nothing.",
         },
     },
-    "required": ["shows_furnace", "status", "display_reading", "error_code", "summary", "concerns"],
+    "required": ["shows_furnace", "status", "display_reading", "error_code", "code_meaning", "summary", "concerns"],
     "additionalProperties": False,
 }
 
 PROMPT = """These {n} frames, in time order about {gap:.1f} s apart, come from a camera pointed at a home gas furnace.
 
 What the camera sees: a close-up of a small translucent oval window on the furnace's blower door. Behind it is the
-control board's status display: a single-character LED digit that may look faint, glowing, or slightly blurred
-through the plastic. Seeing that window counts as seeing the furnace (shows_furnace = true), even if nothing else
+control board's status display: a single-character LED display (digit or letter) that may look faint, glowing,
+or slightly blurred through the plastic, often with glare spots from the camera's own lights on the window. Seeing that window counts as seeing the furnace (shows_furnace = true), even if nothing else
 of the furnace is in frame.
 
-How the display works:
-- "0" means no fault; that is the normal reading (status "normal", error_code empty).
-- A fault code is shown one digit at a time: for error 57 it shows "5" in one frame and "7" in the next, then
-  repeats, possibly with blank frames between. Read the digit in every frame and assemble the code in order,
-  starting from the first digit after a blank or a repeat. Report display_reading as the sequence you saw
-  (e.g. "5, 7, blank, 5, 7") and error_code as the assembled code (e.g. "57").
-- Context: this furnace has been throwing error 57 (pressure-switch fault); a technician is booked. This check
-  runs every 15 minutes so the owner knows if it faults again.
+How the display works (Rheem/Ruud two-stage furnace, per Rheem's installation instructions):
+- Status codes (letters or 0) are NOT faults: 0 = standby/idle; h = low-fire gas heat; H = high-fire gas heat;
+  c / C = low / high cooling; F = continuous fan; CL = inducer calibration; dF = defrost; cd / Cd = cooling with
+  dehumidification. A steady letter in every frame is a status reading, not a printed label.
+- Fault codes are two digits shown one digit at a time (about 1 s each, then a short blank), and may alternate
+  with the status letter: e.g. "h, 5, 7, blank, h, 5, 7" = heating on low fire with fault 57.
+- During a one-hour lockout, "10" alternates with the fault that caused it (e.g. "1, 0, 1, 1" = lockout from 11).
+  Report the cause as error_code and mention the lockout in the summary.
+- A code that isn't in the list below may be the display read upside down; say so instead of inventing a code.
+
+Fault codes:
+10 one-hour lockout (alternates with the cause) | 11 failed ignition | 12 low flame sense (keeps running) |
+13 flame lost after ignition | 14 flame present with gas valve off | 22 main limit open (usually low airflow) |
+23 HALC open | 26 line/neutral reversed or poor ground | 30 open fuse | 33 rollout switch open (manual reset) |
+44 low pressure switch closed with inducer off | 45 low pressure switch open, inducer high |
+46 low pressure switch open, inducer low | 55 high pressure switch closed with inducer off |
+56 pressure switch fault (some models) | 57 high pressure switch open with inducer high (may continue on low fire) |
+58 water circuit open | 59 water sensed / condensate drain blocked | 60 blower at limit, still running |
+61 blower can't run | 66 blower cutback (indicator, not a true fault) | 68 no blower communications |
+93 internal control fault | 99 fault history reset (notification) | d1 / d4 / d6 memory card problem.
+
+Context: this furnace has been throwing 57; a technician is booked. This check runs every 15 minutes so the owner
+knows if it faults again.
+
+How to report:
+- status "normal" for status codes only (and for 66 or 99, noting them in the summary).
+- status "error" when any fault code is shown; error_code = the code (e.g. "57"), code_meaning = its meaning above.
+- display_reading = everything you saw, in frame order (e.g. "h, 5, 7, blank, h, 5, 7").
 
 Rules:
 - If the digit is too faint or blurry to read in most frames, set status "unclear" and describe what you see.
@@ -250,7 +274,7 @@ def alerts(result, state):
     code = result.get("error_code") or ""
     last = state.get("alerted_code") or ""
     if result.get("status") == "error" and code and code != last:
-        push_alert(f"Furnace showing error {code}",
+        push_alert(f"Furnace error {code}: {result.get('code_meaning') or 'see dashboard'}",
                    f"{result.get('summary', '')} Display: {result.get('display_reading', '')}".strip())
         state["alerted_code"] = code
     elif last and result.get("status") == "normal":

@@ -381,6 +381,7 @@ code { font-size: 13px; }
       : `<p class="meta">${st === "not_visible" ? "The furnace isn't in view, so the image is not published." : "No image."}</p>`;
     const fields = [
       cam.display_reading && ["Display", esc(cam.display_reading)],
+      cam.code_meaning && ["Meaning", esc(cam.code_meaning)],
       cam.concerns && ["⚠ Check", esc(cam.concerns)],
       cam.error && ["Problem", esc(cam.error)],
     ].filter(Boolean).map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("");
