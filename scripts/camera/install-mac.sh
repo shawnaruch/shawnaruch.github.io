@@ -44,11 +44,13 @@ EOF
 fi
 chmod 600 "$CFG_DIR/env"
 
-# Runs as a system LaunchDaemon (under your user account), not a per-user
-# LaunchAgent: macOS Local Network privacy blocks LaunchAgents from reaching LAN
-# devices such as the camera ("No route to host"), often without ever showing a
-# permission prompt. System daemons are exempt. Installing one needs your
-# admin password once.
+# Runs as a system LaunchDaemon as root, not a per-user LaunchAgent and not a
+# daemon with UserName set: macOS Local Network privacy blocks both of those
+# from reaching LAN devices such as the camera ("No route to host"), often
+# without ever showing a permission prompt. Root daemons are exempt. HOME and
+# FURNACE_CAM_DIR point at your account, and after each run the settings folder
+# is handed back to you so state/log files never end up owned by root.
+# Installing it needs your admin password once.
 echo "==> Installing timer (every $((INTERVAL / 60)) min) - you'll be asked for your Mac password"
 DAEMON="/Library/LaunchDaemons/$LABEL.plist"
 TMP_PLIST="$(mktemp)"
@@ -57,13 +59,14 @@ cat > "$TMP_PLIST" <<PLIST_END
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
   <key>Label</key><string>$LABEL</string>
-  <key>UserName</key><string>$(id -un)</string>
   <key>ProgramArguments</key><array>
-    <string>$APP_DIR/venv/bin/python</string><string>$APP_DIR/furnace_cam.py</string>
+    <string>/bin/sh</string><string>-c</string>
+    <string>"$APP_DIR/venv/bin/python" "$APP_DIR/furnace_cam.py"; rc=\$?; /usr/sbin/chown -R "$(id -un):$(id -gn)" "$CFG_DIR"; exit \$rc</string>
   </array>
   <key>EnvironmentVariables</key><dict>
     <key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
     <key>HOME</key><string>$HOME</string>
+    <key>FURNACE_CAM_DIR</key><string>$CFG_DIR</string>
   </dict>
   <key>StartInterval</key><integer>$INTERVAL</integer>
   <key>RunAtLoad</key><true/>
