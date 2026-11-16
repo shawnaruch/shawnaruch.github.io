@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy Policy · Home Dashboard</title>
+<style>
+:root {
+  color-scheme: light;
+  --bg: #f4f4f2; --surface: #fcfcfb; --text: #0b0b0b; --text-2: #52514e;
+  --border: rgba(11,11,11,0.10); --link: #2a78d6;
+}
+@media (prefers-color-scheme: dark) {
+  :root { color-scheme: dark; --bg: #111110; --surface: #1a1a19; --text: #f0efec;
+    --text-2: #c3c2b7; --border: rgba(255,255,255,0.10); --link: #3987e5; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+  font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+main { max-width: 720px; margin: 0 auto; padding: 32px 16px 64px; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 24px; }
+h1 { font-size: 26px; margin: 0 0 4px; letter-spacing: -0.01em; }
+h2 { font-size: 17px; margin: 28px 0 6px; }
+.updated { color: var(--text-2); font-size: 14px; margin: 0 0 8px; }
+p, li { color: var(--text); }
+ul { padding-left: 20px; }
+a { color: var(--link); }
+</style>
+</head>
+<body>
+<main>
+<div class="card">
+  <h1>Privacy Policy</h1>
+  <p class="updated">Home Dashboard · Last updated November 16, 2026</p>
+
+  <p>Home Dashboard is a personal, single-household project that shows temperature and
+  humidity readings at <a href="https://home.esemay.com">home.esemay.com</a>. It is not a
+  commercial product and has no other users. Only the site owner's own accounts are connected.</p>
+
+  <h2>What data it accesses</h2>
+  <ul>
+    <li><strong>SensorPush:</strong> sensor names, temperature, humidity, dew point, barometric
+    pressure, battery level, signal strength, and gateway status.</li>
+    <li><strong>Google Nest (via the Smart Device Management API):</strong> the thermostat's
+    temperature and humidity readings, setpoints, mode, and heating/cooling status.
+    Access is read-only. The dashboard never changes thermostat settings.</li>
+  </ul>
+  <p>No names, email addresses, locations, contacts, or other Google account data are requested.</p>
+
+  <h2>How the data is used and stored</h2>
+  <p>An automated job runs about every 15 minutes, reads the data above, and saves it as a
+  file in the site's GitHub repository. The dashboard displays that file. Roughly the most
+  recent 24 hours are kept, and each update replaces the previous file.</p>
+  <p><strong>The readings are public.</strong> Anyone who visits the dashboard or its
+  repository can see them. Account credentials and access tokens are stored as encrypted
+  GitHub Actions secrets and are never published.</p>
+
+  <h2>Sharing</h2>
+  <p>The data is not sold, shared with third parties, used for advertising, or used to train
+  any AI or machine-learning models. Beyond being displayed publicly on the dashboard, it is
+  not used for any other purpose.</p>
+
+  <h2>Google API Services User Data Policy</h2>
+  <p>Home Dashboard's use and transfer of information received from Google APIs adheres to the
+  <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API
+  Services User Data Policy</a>, including the Limited Use requirements.</p>
+
+  <h2>Revoking access</h2>
+  <p>Access to Nest data can be removed at any time from the Google account's
+  <a href="https://myaccount.google.com/connections">third-party connections</a> page or the
+  Nest partner connections settings. Once access is revoked, no new Nest data is collected,
+  and the stored readings age out within about 24 hours.</p>
+
+  <h2>Contact</h2>
+  <p>Questions about this policy can be raised through the site's
+  <a href="https://github.com/shawnaruch/shawnaruch.github.io/issues">GitHub repository</a>.</p>
+</div>
+</main>
+</body>
+</html>
