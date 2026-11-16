@@ -4,8 +4,9 @@
 Runs on the Mac mini (the camera is only reachable on the home network), on a
 launchd timer installed by install-mac.sh. Each run:
 
-  1. grabs one frame from the Eufy camera's RTSP stream with ffmpeg
-  2. asks Claude what the furnace shows (status display, error code, hazards)
+  1. records a few seconds of the Eufy camera's RTSP stream with ffmpeg
+     (the display flashes its code one character at a time, e.g. 5 then 7)
+  2. asks Claude to read the frames in order (display sequence, error code, hazards)
   3. force-pushes frame.jpg + camera.json to the `camera-data` branch, which the
      dashboard at home.esemay.com reads
   4. sends an ntfy push when an error code appears or clears
@@ -52,7 +53,7 @@ SCHEMA = {
         },
         "display_reading": {
             "type": "string",
-            "description": "Exactly what the status display or LED shows (e.g. '57', 'solid green', 'off'). Empty if none visible.",
+            "description": "What the display shows across the frames, in order (e.g. '5, 7, blank, 5, 7'). Empty if none visible.",
         },
         "error_code": {
             "type": "string",
@@ -72,7 +73,7 @@ SCHEMA = {
     "additionalProperties": False,
 }
 
-PROMPT = """This is a frame from a camera pointed at a home gas furnace.
+PROMPT = """These {n} frames, in time order about {gap:.1f} s apart, come from a camera pointed at a home gas furnace.
 Context: the furnace has been throwing error 57, which this owner reads as a pressure-switch fault.
 A technician is booked. This check runs every 15 minutes so the owner knows if the furnace is faulting again.
 
@@ -82,9 +83,14 @@ Read the image and report:
 - any error code shown
 - anything unsafe or unusual (water, scorch marks, smoke, panels off, wires disconnected or jumpered)
 
-Report only what you can see. A single frame cannot show a blink pattern: if the code is a blinking LED,
-describe it as lit/unlit and color, mark status "unclear" unless the code is plainly readable, and do not
-guess a blink count. If the image is dark, blurry, or the display is out of frame, say so."""
+This furnace's display shows a code one character at a time: for error 57 it shows "5" in one frame and
+"7" in the next, then repeats, possibly with blank frames between. Read the display in every frame and put
+the characters together in the order they appear, starting from the first character after a blank or a
+repeat. Report display_reading as the sequence you saw (e.g. "5, 7, blank, 5, 7") and error_code as the
+assembled code (e.g. "57"). If the frames show only one character, or the sequence is ambiguous, say so,
+set status "unclear", and do not guess the missing part.
+
+Report only what you can see. If the frames are dark, blurry, or the display is out of frame, say so."""
 
 
 def load_env():
@@ -111,12 +117,25 @@ def redact(text):
     return text
 
 
+BURST_SECONDS = float(os.environ.get("BURST_SECONDS") or 8)
+BURST_FPS = float(os.environ.get("BURST_FPS") or 2)
+MAX_FRAMES = 12
+
+
 def grab_frame(url, out_path):
-    """One JPEG from the stream, at most 1280px wide. Raises on failure."""
+    """Capture from the stream: out_path = one still (<=1280px) for the dashboard,
+    plus a burst of frames (<=800px) next to it, because the furnace display
+    flashes its code one character at a time. Returns the burst paths in time
+    order. Raises on failure."""
+    burst_pattern = os.path.join(os.path.dirname(out_path), "burst_%02d.jpg")
     cmd = ["ffmpeg", "-nostdin", "-loglevel", "error"]
     if url.startswith("rtsp"):
         cmd += ["-rtsp_transport", "tcp"]
-    cmd += ["-i", url, "-frames:v", "1", "-vf", "scale='min(1280,iw)':-2", "-q:v", "4", "-y", out_path]
+    cmd += ["-i", url,
+            "-map", "0:v:0", "-frames:v", "1", "-vf", "scale='min(1280,iw)':-2", "-q:v", "4", "-y", out_path,
+            "-map", "0:v:0", "-t", str(BURST_SECONDS),
+            "-vf", f"fps={BURST_FPS},scale='min(800,iw)':-2", "-frames:v", str(MAX_FRAMES),
+            "-q:v", "4", "-y", burst_pattern]
     try:
         subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=60)
     except subprocess.CalledProcessError as e:
@@ -125,12 +144,21 @@ def grab_frame(url, out_path):
         raise RuntimeError("ffmpeg timed out (camera asleep or unreachable?)") from None
     if not os.path.exists(out_path) or os.path.getsize(out_path) == 0:
         raise RuntimeError("ffmpeg produced no image")
+    d = os.path.dirname(out_path)
+    burst = sorted(os.path.join(d, f) for f in os.listdir(d) if f.startswith("burst_") and f.endswith(".jpg"))
+    return burst or [out_path]
 
 
-def analyze(jpeg_path, client=None):
+def analyze(frames, client=None):
+    """frames: JPEG paths in time order, 1/BURST_FPS seconds apart."""
     client = client or anthropic.Anthropic()
-    with open(jpeg_path, "rb") as f:
-        data = base64.standard_b64encode(f.read()).decode("utf-8")
+    content = []
+    for i, path in enumerate(frames, 1):
+        with open(path, "rb") as f:
+            data = base64.standard_b64encode(f.read()).decode("utf-8")
+        content.append({"type": "text", "text": f"Frame {i} (t = {(i - 1) / BURST_FPS:.1f} s)"})
+        content.append({"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": data}})
+    content.append({"type": "text", "text": PROMPT.format(n=len(frames), gap=1 / BURST_FPS)})
     model = os.environ.get("CAMERA_MODEL") or "claude-haiku-5-5"
     request = dict(
         model=model,
@@ -138,10 +166,7 @@ def analyze(jpeg_path, client=None):
         output_config={"effort": "low", "format": {"type": "json_schema", "schema": SCHEMA}},
         messages=[{
             "role": "user",
-            "content": [
-                {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": data}},
-                {"type": "text", "text": PROMPT},
-            ],
+            "content": content,
         }],
     )
     if "haiku" in model:
@@ -236,8 +261,9 @@ def main():
     record = {"captured_at": now_iso()}
     try:
         try:
-            grab_frame(url, frame)
-            result = analyze(frame)
+            burst = grab_frame(url, frame)
+            result = analyze(burst)
+            result["frames_analyzed"] = len(burst)
             record.update(result)
             record["image"] = "frame.jpg" if result["shows_furnace"] else None
             if result["shows_furnace"]:
