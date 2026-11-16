@@ -38,6 +38,7 @@ jobs:
           NEST_CLIENT_SECRET: ${{ secrets.NEST_CLIENT_SECRET }}
           NEST_REFRESH_TOKEN: ${{ secrets.NEST_REFRESH_TOKEN }}
           PREV_JSON: ${{ runner.temp }}/prev.json
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
         run: python3 scripts/fetch_sensorpush.py "$RUNNER_TEMP/out/latest.json"
 
       - name: Publish to sensorpush-data branch
