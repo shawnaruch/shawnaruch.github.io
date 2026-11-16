@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Pull current readings + 24h history from the SensorPush Cloud API.
 
-Writes a compact JSON file the static dashboard (home/index.html) reads.
+Writes a compact JSON file the static dashboard (index.html) reads.
 Standard library only, so the GitHub Action needs no pip install.
 
 Usage:
