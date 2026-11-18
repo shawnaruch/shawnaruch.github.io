@@ -29,6 +29,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 
@@ -153,7 +154,7 @@ def now_iso():
 
 
 def redact(text):
-    for key in ("CAMERA_URL", "GITHUB_TOKEN", "ANTHROPIC_API_KEY"):
+    for key in ("CAMERA_URL", "GITHUB_TOKEN", "ANTHROPIC_API_KEY", "INGEST_TOKEN", "CF_ACCESS_CLIENT_SECRET"):
         val = os.environ.get(key)
         if val:
             text = text.replace(val, f"<{key}>")
@@ -225,6 +226,31 @@ def analyze(frames, client=None):
     result = json.loads(text)
     result["model"] = response.model
     return result
+
+
+def publish_worker(files, base):
+    """PUT each file to the private dashboard Worker (behind Cloudflare Access).
+    Needs CF_ACCESS_CLIENT_ID / CF_ACCESS_CLIENT_SECRET (an Access service token)
+    and INGEST_TOKEN."""
+    headers = {
+        "CF-Access-Client-Id": os.environ.get("CF_ACCESS_CLIENT_ID", ""),
+        "CF-Access-Client-Secret": os.environ.get("CF_ACCESS_CLIENT_SECRET", ""),
+        "x-ingest-token": os.environ.get("INGEST_TOKEN", ""),
+        "User-Agent": "furnace-cam/1.0",
+    }
+    if not all(headers[k] for k in ("CF-Access-Client-Id", "CF-Access-Client-Secret", "x-ingest-token")):
+        raise RuntimeError("WORKER_URL is set but CF_ACCESS_CLIENT_ID, CF_ACCESS_CLIENT_SECRET or INGEST_TOKEN is missing")
+    # Frame first, so camera.json never points at an image that isn't there yet.
+    for name in sorted(files, key=lambda n: n != "frame.jpg"):
+        with open(files[name], "rb") as f:
+            body = f.read()
+        req = urllib.request.Request(f"{base.rstrip('/')}/ingest/{name}", data=body, method="PUT", headers={
+            **headers, "Content-Type": "image/jpeg" if name.endswith(".jpg") else "application/json"})
+        try:
+            urllib.request.urlopen(req, timeout=60).read()
+        except urllib.error.HTTPError as e:
+            raise RuntimeError(f"upload of {name} to the dashboard failed: HTTP {e.code} "
+                               f"{e.read().decode(errors='replace')[:200]}") from None
 
 
 def publish(files, token, repo):
@@ -340,8 +366,12 @@ def main():
         files = {"camera.json": meta}
         if record.get("image"):
             files["frame.jpg"] = frame
-        publish(files, os.environ.get("GITHUB_TOKEN", ""),
-                os.environ.get("GITHUB_REPO", "shawnaruch/shawnaruch.github.io"))
+        if os.environ.get("WORKER_URL"):
+            # Private dashboard: nothing goes to the public GitHub branch.
+            publish_worker(files, os.environ["WORKER_URL"])
+        else:
+            publish(files, os.environ.get("GITHUB_TOKEN", ""),
+                    os.environ.get("GITHUB_REPO", "shawnaruch/shawnaruch.github.io"))
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

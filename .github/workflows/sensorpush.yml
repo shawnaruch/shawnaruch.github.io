@@ -43,10 +43,21 @@ jobs:
           echo "Test alert sent."
 
       # Previous file, so Nest (which has no history API) can keep a rolling log.
+      # With WORKER_URL set (repo variable), data lives in the private Worker;
+      # otherwise in the public sensorpush-data branch.
       - name: Get previous data
+        env:
+          WORKER_URL: ${{ vars.WORKER_URL }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         run: |
-          git fetch -q --depth=1 origin sensorpush-data && \
-            git show FETCH_HEAD:latest.json > "$RUNNER_TEMP/prev.json" || echo "no previous data"
+          if [ -n "$WORKER_URL" ]; then
+            curl -fsS -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
+              "$WORKER_URL/data/latest.json" -o "$RUNNER_TEMP/prev.json" || echo "no previous data in Worker"
+          else
+            git fetch -q --depth=1 origin sensorpush-data && \
+              git show FETCH_HEAD:latest.json > "$RUNNER_TEMP/prev.json" || echo "no previous data"
+          fi
 
       - name: Fetch from SensorPush and Nest
         env:
@@ -60,7 +71,21 @@ jobs:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
         run: python3 scripts/fetch_sensorpush.py "$RUNNER_TEMP/out/latest.json"
 
+      - name: Publish to private Worker
+        if: ${{ vars.WORKER_URL != '' }}
+        env:
+          WORKER_URL: ${{ vars.WORKER_URL }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          INGEST_TOKEN: ${{ secrets.INGEST_TOKEN }}
+        run: |
+          curl -fsS -X PUT -H "Content-Type: application/json" \
+            -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
+            -H "x-ingest-token: $INGEST_TOKEN" \
+            --data-binary @"$RUNNER_TEMP/out/latest.json" "$WORKER_URL/ingest/latest.json"
+
       - name: Publish to sensorpush-data branch
+        if: ${{ vars.WORKER_URL == '' }}
         run: |
           cd "$RUNNER_TEMP/out"
           git init -q -b sensorpush-data
