@@ -1,0 +1,96 @@
+name: Deploy Cloudflare Worker
+
+# Deploys the private dashboard (worker/) to Cloudflare. Needs repo secrets
+# CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID and INGEST_TOKEN, and repo
+# variables ACCESS_TEAM_DOMAIN and ACCESS_AUD once Cloudflare Access is set up.
+# Until those exist, the Worker deploys but refuses every request.
+on:
+  push:
+    branches: [master]
+    paths:
+      - "worker/**"
+      - "index.html"
+      - "privacy/**"
+      - ".github/workflows/deploy-worker.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-worker
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    defaults:
+      run:
+        working-directory: worker
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check Cloudflare credentials
+        id: creds
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::notice::Cloudflare secrets not set yet; skipping deploy."
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-node@v4
+        if: steps.creds.outputs.ok == 'true'
+        with:
+          node-version: 22
+
+      - name: Build site (dashboard reads data from this Worker)
+        if: steps.creds.outputs.ok == 'true'
+        run: |
+          rm -rf site && mkdir -p site
+          cp ../index.html site/index.html
+          cp -r ../privacy site/privacy
+          sed -i \
+            -e 's#https://raw.githubusercontent.com/shawnaruch/shawnaruch.github.io/sensorpush-data/latest.json#/data/latest.json#' \
+            -e 's#https://raw.githubusercontent.com/shawnaruch/shawnaruch.github.io/camera-data/#/data/#' \
+            site/index.html
+          if grep -q 'https://raw.githubusercontent.com' site/index.html; then
+            echo "::error::index.html still points at public GitHub data"; exit 1
+          fi
+          npm install --no-save --silent wrangler@4
+
+      - name: Ensure KV namespace
+        if: steps.creds.outputs.ok == 'true'
+        run: |
+          find_id() { npx wrangler kv namespace list 2>/dev/null | python3 -c \
+            "import json,sys; print(next((n['id'] for n in json.load(sys.stdin) if n['title'].endswith('home-data')), ''))"; }
+          ID="$(find_id)"
+          if [ -z "$ID" ]; then npx wrangler kv namespace create home-data; ID="$(find_id)"; fi
+          [ -n "$ID" ] || { echo "::error::Could not find or create the home-data KV namespace"; exit 1; }
+          sed -i "s/__KV_ID__/$ID/" wrangler.jsonc
+
+      - name: Deploy
+        if: steps.creds.outputs.ok == 'true'
+        env:
+          ACCESS_TEAM_DOMAIN: ${{ vars.ACCESS_TEAM_DOMAIN }}
+          ACCESS_AUD: ${{ vars.ACCESS_AUD }}
+        run: |
+          args=()
+          [ -n "$ACCESS_TEAM_DOMAIN" ] && args+=(--var "ACCESS_TEAM_DOMAIN:$ACCESS_TEAM_DOMAIN")
+          [ -n "$ACCESS_AUD" ] && args+=(--var "ACCESS_AUD:$ACCESS_AUD")
+          npx wrangler deploy "${args[@]}"
+
+      - name: Set ingest secret
+        if: steps.creds.outputs.ok == 'true'
+        env:
+          INGEST_TOKEN: ${{ secrets.INGEST_TOKEN }}
+        run: |
+          if [ -z "$INGEST_TOKEN" ]; then echo "::notice::INGEST_TOKEN not set; uploads will be refused."; exit 0; fi
+          python3 -c 'import json,os; json.dump({"INGEST_TOKEN": os.environ["INGEST_TOKEN"]}, open("/tmp/s.json","w"))'
+          npx wrangler secret bulk /tmp/s.json
+          rm -f /tmp/s.json
