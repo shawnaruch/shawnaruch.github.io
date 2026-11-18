@@ -1,0 +1,13 @@
+{
+ "captured_at": "2026-11-18T21:42:51Z",
+ "shows_furnace": false,
+ "status": "not_visible",
+ "display_reading": "",
+ "error_code": "",
+ "code_meaning": "",
+ "summary": "The camera is not showing the furnace. All 12 frames show what looks like a crawlspace or under-floor area: concrete blocks, a brick column, and a bundle of loose wires. No oval window or status display is in view, so the furnace status can't be checked; the camera has likely moved or is pointed at the wrong spot.",
+ "concerns": "A loose bundle of white wiring hangs from above near the brick column, with one wire end dangling free. Two screws or nails stick out of the bottom of a concrete block.",
+ "model": "claude-opus-5-5",
+ "frames_analyzed": 12,
+ "image": null
+}
