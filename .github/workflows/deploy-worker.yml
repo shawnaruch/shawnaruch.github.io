@@ -9,7 +9,6 @@ on:
     branches: [master]
     paths:
       - "worker/**"
-      - "index.html"
       - "privacy/**"
       - ".github/workflows/deploy-worker.yml"
   workflow_dispatch:
@@ -53,12 +52,8 @@ jobs:
         if: steps.creds.outputs.ok == 'true'
         run: |
           rm -rf site && mkdir -p site
-          cp ../index.html site/index.html
+          cp dashboard.html site/index.html
           cp -r ../privacy site/privacy
-          sed -i \
-            -e 's#https://raw.githubusercontent.com/shawnaruch/shawnaruch.github.io/sensorpush-data/latest.json#/data/latest.json#' \
-            -e 's#https://raw.githubusercontent.com/shawnaruch/shawnaruch.github.io/camera-data/#/data/#' \
-            site/index.html
           if grep -q 'https://raw.githubusercontent.com' site/index.html; then
             echo "::error::index.html still points at public GitHub data"; exit 1
           fi
