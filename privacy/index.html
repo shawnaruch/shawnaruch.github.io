@@ -31,11 +31,11 @@ a { color: var(--link); }
 <main>
 <div class="card">
   <h1>Privacy Policy</h1>
-  <p class="updated">Home Dashboard · Last updated November 16, 2026</p>
+  <p class="updated">Home Dashboard · Last updated November 20, 2026</p>
 
   <p>Home Dashboard is a personal, single-household project that shows temperature and
-  humidity readings at <a href="https://home.esemay.com">home.esemay.com</a>. It is not a
-  commercial product and has no other users. Only the site owner's own accounts are connected.</p>
+  humidity readings to its owner. It is not a commercial product and has no other users.
+  Only the site owner's own accounts are connected.</p>
 
   <h2>What data it accesses</h2>
   <ul>
@@ -48,17 +48,18 @@ a { color: var(--link); }
   <p>No names, email addresses, locations, contacts, or other Google account data are requested.</p>
 
   <h2>How the data is used and stored</h2>
-  <p>An automated job runs about every 15 minutes, reads the data above, and saves it as a
-  file in the site's GitHub repository. The dashboard displays that file. Roughly the most
-  recent 24 hours are kept, and each update replaces the previous file.</p>
-  <p><strong>The readings are public.</strong> Anyone who visits the dashboard or its
-  repository can see them. Account credentials and access tokens are stored as encrypted
-  GitHub Actions secrets and are never published.</p>
+  <p>An automated job runs about every 15 minutes, reads the data above, and stores it in a
+  private Cloudflare Workers KV store. The dashboard displays it. Roughly the most recent
+  24 hours are kept, and each update replaces the previous copy.</p>
+  <p><strong>The readings are private.</strong> The dashboard and its data are behind
+  Cloudflare Access: only the owner's Google account can sign in to view them, and only
+  the owner's own automated jobs can write to them. Account credentials and access tokens
+  are stored as encrypted secrets and are never published.</p>
 
   <h2>Sharing</h2>
   <p>The data is not sold, shared with third parties, used for advertising, or used to train
-  any AI or machine-learning models. Beyond being displayed publicly on the dashboard, it is
-  not used for any other purpose.</p>
+  any AI or machine-learning models. It is used only to show the owner their own readings
+  and to send the owner alerts.</p>
 
   <h2>Google API Services User Data Policy</h2>
   <p>Home Dashboard's use and transfer of information received from Google APIs adheres to the

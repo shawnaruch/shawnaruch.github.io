@@ -1,0 +1,550 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Home Sensors</title>
+<meta name="robots" content="noindex">
+<style>
+:root {
+  color-scheme: light;
+  --bg: #f4f4f2;
+  --surface: #fcfcfb;
+  --text: #0b0b0b;
+  --text-2: #52514e;
+  --muted: #898781;
+  --grid: #e1e0d9;
+  --border: rgba(11,11,11,0.10);
+  --temp: #eb6834;
+  --hum: #2a78d6;
+  --good: #0ca30c;
+  --warning: #fab219;
+  --critical: #d03b3b;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #111110;
+    --surface: #1a1a19;
+    --text: #f0efec;
+    --text-2: #c3c2b7;
+    --grid: #2c2c2a;
+    --border: rgba(255,255,255,0.10);
+    --temp: #d95926;
+    --hum: #3987e5;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #111110;
+  --surface: #1a1a19;
+  --text: #f0efec;
+  --text-2: #c3c2b7;
+  --grid: #2c2c2a;
+  --border: rgba(255,255,255,0.10);
+  --temp: #d95926;
+  --hum: #3987e5;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 1200px; margin: 0 auto; padding: 20px 16px 48px; }
+header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 16px; margin-bottom: 16px; }
+h1 { font-size: 22px; margin: 0; font-weight: 650; letter-spacing: -0.01em; }
+.updated { color: var(--text-2); font-size: 13px; }
+.spacer { flex: 1; }
+button {
+  font: inherit; font-size: 13px; color: var(--text); background: var(--surface);
+  border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; cursor: pointer;
+}
+button:hover { border-color: var(--muted); }
+.summary { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+.pill {
+  display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-2);
+  background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 4px 12px;
+}
+.dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.section { margin: 0; }
+.section > summary {
+  list-style: none; cursor: pointer; display: flex; align-items: baseline; gap: 10px;
+  padding: 6px 0 12px; user-select: none; border-radius: 8px;
+}
+.section > summary::-webkit-details-marker { display: none; }
+.section > summary:focus-visible { outline: 2px solid var(--hum); outline-offset: 2px; }
+.section > summary h2 { font-size: 18px; font-weight: 650; margin: 0; letter-spacing: -0.01em; }
+.section > summary .chev { display: inline-block; width: 14px; color: var(--text-2); transition: transform .15s; transform: rotate(90deg); }
+.section:not([open]) > summary .chev { transform: rotate(0deg); }
+.section > summary .sec-meta { color: var(--text-2); font-size: 13px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.alert {
+  display: flex; gap: 12px; align-items: flex-start; margin: 0 0 16px; padding: 14px 16px;
+  background: var(--surface); border: 1px solid var(--critical); border-left: 6px solid var(--critical); border-radius: 12px;
+}
+.alert .icon { font-size: 20px; line-height: 1.2; }
+.alert strong { display: block; font-size: 15px; margin-bottom: 2px; }
+.alert p { margin: 0; color: var(--text-2); font-size: 14px; }
+.alert[hidden] { display: none; }
+.cam-card { max-width: 720px; }
+.cam-img { display: block; width: 100%; height: auto; border-radius: 10px; margin: 10px 0 4px; background: var(--grid); }
+.cam-fields { margin: 8px 0 0; display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 14px; }
+.cam-fields dt { color: var(--text-2); }
+.cam-fields dd { margin: 0; }
+.divider { border: 0; border-top: 1px solid var(--grid); margin: 20px 0 14px; }
+.divider[hidden], .section[hidden] { display: none; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+.card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+  padding: 16px; min-width: 0;
+}
+.card-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.card-head h2 { font-size: 15px; font-weight: 600; margin: 0; flex: 1; min-width: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.badge { font-size: 12px; color: var(--text-2); display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.hero { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+.temp { font-size: 44px; font-weight: 600; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; line-height: 1; }
+.temp small { font-size: 20px; font-weight: 500; color: var(--text-2); letter-spacing: 0; }
+.hum { font-size: 22px; font-weight: 550; font-variant-numeric: tabular-nums; }
+.hum small { font-size: 13px; color: var(--text-2); font-weight: 400; }
+.trend { font-size: 14px; font-weight: 550; color: var(--text); display: inline-flex; align-items: center; gap: 4px;
+  border: 1px solid var(--border); border-radius: 999px; padding: 2px 10px; align-self: center; white-space: nowrap; }
+.trend small { font-weight: 400; color: var(--text-2); font-size: 12px; }
+.meta { color: var(--text-2); font-size: 13px; margin-top: 6px; font-variant-numeric: tabular-nums; }
+.chart { position: relative; margin-top: 12px; }
+.chart-label { font-size: 12px; color: var(--muted); display: flex; justify-content: space-between; margin-bottom: 2px; }
+.chart svg { display: block; width: 100%; height: 64px; overflow: visible; touch-action: none; }
+.chart.hum-chart svg { height: 40px; }
+.tip {
+  position: absolute; top: -6px; pointer-events: none; transform: translate(-50%, -100%);
+  background: var(--text); color: var(--surface); font-size: 12px; padding: 4px 8px; border-radius: 6px;
+  white-space: nowrap; font-variant-numeric: tabular-nums; display: none; z-index: 2;
+}
+.stale .temp, .stale .hum { color: var(--muted); }
+.empty, .error {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+  padding: 24px; color: var(--text-2);
+}
+.error strong { color: var(--text); }
+code { font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Home Sensors</h1>
+    <span class="updated" id="updated">Loading…</span>
+    <span class="spacer"></span>
+    <button id="range" type="button" aria-label="Toggle chart time range">6h</button>
+    <button id="unit" type="button" aria-label="Toggle temperature unit">°F</button>
+    <button id="refresh" type="button">Refresh</button>
+  </header>
+  <div class="summary" id="summary"></div>
+  <div class="alert" id="heat-alert" role="alert" hidden></div>
+  <details class="section" id="sec-nest" open hidden>
+    <summary><span class="chev" aria-hidden="true">▸</span><h2>Thermostat</h2><span class="sec-meta" id="nest-meta"></span></summary>
+    <div id="nest-cards" class="grid" aria-live="polite"></div>
+  </details>
+  <hr class="divider" id="sec-divider" hidden>
+  <details class="section" id="sec-cam" open hidden>
+    <summary><span class="chev" aria-hidden="true">▸</span><h2>Furnace camera</h2><span class="sec-meta" id="cam-meta"></span></summary>
+    <div id="cam-cards" class="grid" style="grid-template-columns: minmax(0, 720px);"></div>
+  </details>
+  <hr class="divider" id="cam-divider" hidden>
+  <details class="section" id="sec-sensors" open>
+    <summary><span class="chev" aria-hidden="true">▸</span><h2>Sensors</h2><span class="sec-meta" id="sensor-meta"></span></summary>
+    <div id="cards" class="grid" aria-live="polite"></div>
+  </details>
+</div>
+
+<script>
+(() => {
+  // Data published by .github/workflows/sensorpush.yml. Override with ?data=<url>.
+  const DEFAULT_URL =
+    "/data/latest.json";
+  const DATA_URL = new URLSearchParams(location.search).get("data") || DEFAULT_URL;
+  // Published from the Mac mini by scripts/camera/furnace_cam.py.
+  const CAM_BASE = new URLSearchParams(location.search).get("cam") ||
+    "/data/";
+  const CAM_STALE_MIN = 45;
+  let cam = null;
+  const STALE_MIN = 30;          // reading older than this = sensor flagged
+  const LOW_BATTERY_V = 2.5;     // SensorPush coin cells read ~3.0V new
+  const REFRESH_MS = 5 * 60 * 1000;
+
+  const $ = (id) => document.getElementById(id);
+  let unit = "F";
+  try { unit = localStorage.getItem("sp-unit") || "F"; } catch (_) {}
+  let data = null;
+  let rangeH = 6;
+  try { rangeH = Number(localStorage.getItem("sp-range")) || 6; } catch (_) {}
+  const TREND_WINDOW_S = 3600;   // fit the trend to the last hour
+  const STEADY_F_PER_H = 0.5;    // below this rate (°F/hr) counts as steady
+
+  // Least-squares slope of temperature over the last hour of the series.
+  function trendFor(series) {
+    const pts = series.filter((p) => p[1] != null);
+    if (pts.length < 4) return null;
+    const tEnd = pts[pts.length - 1][0];
+    const win = pts.filter((p) => p[0] >= tEnd - TREND_WINDOW_S);
+    if (win.length < 4) return null;
+    const n = win.length;
+    const mt = win.reduce((a, p) => a + p[0], 0) / n, my = win.reduce((a, p) => a + p[1], 0) / n;
+    let num = 0, den = 0;
+    for (const [t, y] of win) { num += (t - mt) * (y - my); den += (t - mt) ** 2; }
+    if (!den) return null;
+    const b = num / den;  // °F per second
+    const t0 = win[0][0];
+    return { perHour: b * 3600, t0, t1: tEnd, y0: my + b * (t0 - mt), y1: my + b * (tEnd - mt) };
+  }
+
+  const toUnit = (f) => f == null ? null : unit === "F" ? f : (f - 32) * 5 / 9;
+  const toUnitDelta = (d) => d == null ? null : unit === "F" ? d : d * 5 / 9;
+  const fmt = (v, digits = 1) => v == null ? "–" : v.toFixed(digits);
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+  function ago(iso) {
+    if (!iso) return "never";
+    const m = Math.round((Date.now() - new Date(iso)) / 60000);
+    if (m < 1) return "just now";
+    if (m < 60) return `${m} min ago`;
+    const h = Math.round(m / 60);
+    if (h < 48) return `${h} hr ago`;
+    return `${Math.round(h / 24)} days ago`;
+  }
+  const minutesSince = (iso) => iso ? (Date.now() - new Date(iso)) / 60000 : Infinity;
+  // Device health is judged at the moment the feed was pulled, so a late feed
+  // doesn't make every sensor look offline.
+  const ageAtPull = (iso) => iso && data ? (new Date(data.generated_at) - new Date(iso)) / 60000 : Infinity;
+  const FEED_STALE_MIN = 45;
+  const timeOf = (epoch) => new Date(epoch * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+
+  // Single-series line+area chart with a hover crosshair. One axis per chart.
+  function chart(series, idx, color, label, unitLabel, convert, trend) {
+    const tLast = series.length ? series[series.length - 1][0] : 0;
+    const pts = series.filter((p) => p[idx] != null && p[0] >= tLast - rangeH * 3600).map((p) => [p[0], convert(p[idx])]);
+    const wrap = document.createElement("div");
+    wrap.className = "chart" + (idx === 2 ? " hum-chart" : "");
+    if (pts.length < 2) {
+      wrap.innerHTML = `<div class="chart-label"><span>${label}</span><span>no history</span></div>`;
+      return wrap;
+    }
+    const W = 300, H = idx === 2 ? 40 : 64, pad = 3;
+    const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
+    const x0 = xs[0], x1 = xs[xs.length - 1];
+    let lo = Math.min(...ys), hi = Math.max(...ys);
+    const ty0 = trend ? convert(trend.y0) : null, ty1 = trend ? convert(trend.y1) : null;
+    if (trend) { lo = Math.min(lo, ty0, ty1); hi = Math.max(hi, ty0, ty1); }
+    if (hi - lo < 2) { const mid = (hi + lo) / 2; lo = mid - 1; hi = mid + 1; }
+    const sx = (x) => ((x - x0) / (x1 - x0 || 1)) * W;
+    const sy = (y) => pad + (1 - (y - lo) / (hi - lo)) * (H - pad * 2);
+    // Break the line where a gap of >30 min exists.
+    let d = "", area = "", seg = [];
+    const flush = () => {
+      if (seg.length < 1) return;
+      const line = seg.map((p, i) => `${i ? "L" : "M"}${sx(p[0]).toFixed(1)},${sy(p[1]).toFixed(1)}`).join("");
+      d += line;
+      area += line + `L${sx(seg[seg.length - 1][0]).toFixed(1)},${H}L${sx(seg[0][0]).toFixed(1)},${H}Z`;
+      seg = [];
+    };
+    pts.forEach((p, i) => { if (i && p[0] - pts[i - 1][0] > 1800) flush(); seg.push(p); });
+    flush();
+    const minV = Math.min(...ys), maxV = Math.max(...ys);
+    wrap.innerHTML = `
+      <div class="chart-label"><span>${label} · ${rangeH}h</span>${trend ? `<span>dashed = last-hour trend</span>` : ""}</div>
+      <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img"
+           aria-label="${label} last 24 hours, range ${fmt(minV)} to ${fmt(maxV)}${unitLabel}">
+        <line x1="0" x2="${W}" y1="${H - 0.5}" y2="${H - 0.5}" stroke="var(--grid)" stroke-width="1" vector-effect="non-scaling-stroke"/>
+        <path d="${area}" fill="${color}" opacity="0.12"/>
+        <path d="${d}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>
+        ${trend ? `<line x1="${sx(trend.t0).toFixed(1)}" y1="${sy(ty0).toFixed(1)}" x2="${sx(trend.t1).toFixed(1)}" y2="${sy(ty1).toFixed(1)}"
+            stroke="var(--text)" stroke-width="2" stroke-dasharray="5 3" stroke-linecap="round" vector-effect="non-scaling-stroke"/>` : ""}
+        <line class="xh" y1="0" y2="${H}" stroke="var(--muted)" stroke-width="1" vector-effect="non-scaling-stroke" visibility="hidden"/>
+      </svg>
+      <div class="tip"></div>`;
+    const svg = wrap.querySelector("svg"), xh = wrap.querySelector(".xh"), tip = wrap.querySelector(".tip");
+    // Circle would stretch under preserveAspectRatio=none, so place an HTML dot instead.
+    const dot = document.createElement("div");
+    dot.style.cssText = `position:absolute;width:9px;height:9px;border-radius:50%;background:${color};
+      box-shadow:0 0 0 2px var(--surface);transform:translate(-50%,-50%);pointer-events:none;display:none`;
+    wrap.appendChild(dot);
+    const move = (ev) => {
+      const r = svg.getBoundingClientRect();
+      const fx = Math.min(Math.max((ev.clientX - r.left) / r.width, 0), 1);
+      const tx = x0 + fx * (x1 - x0);
+      let best = pts[0];
+      for (const p of pts) if (Math.abs(p[0] - tx) < Math.abs(best[0] - tx)) best = p;
+      const px = (sx(best[0]) / W) * r.width, py = (sy(best[1]) / H) * r.height;
+      const offTop = r.top - wrap.getBoundingClientRect().top;
+      xh.setAttribute("x1", sx(best[0])); xh.setAttribute("x2", sx(best[0])); xh.setAttribute("visibility", "visible");
+      dot.style.left = px + "px"; dot.style.top = offTop + py + "px"; dot.style.display = "block";
+      tip.textContent = `${fmt(best[1])}${unitLabel} · ${timeOf(best[0])}`;
+      tip.style.left = Math.min(Math.max(px, 50), r.width - 50) + "px";
+      tip.style.top = offTop - 4 + "px";
+      tip.style.display = "block";
+    };
+    const leave = () => { xh.setAttribute("visibility", "hidden"); tip.style.display = "none"; dot.style.display = "none"; };
+    svg.addEventListener("pointermove", move);
+    svg.addEventListener("pointerdown", move);
+    svg.addEventListener("pointerleave", leave);
+    return wrap;
+  }
+
+  // Nest: ambient temperature line with heating/cooling periods shaded behind it.
+  function nestChart(history) {
+    const tLast = history.length ? history[history.length - 1][0] : 0;
+    const h = history.filter((r) => r[0] >= tLast - rangeH * 3600);
+    const wrap = document.createElement("div");
+    wrap.className = "chart";
+    if (h.length < 2) {
+      wrap.innerHTML = `<div class="chart-label"><span>Thermostat · ${rangeH}h</span><span>history builds up over the next few hours</span></div>`;
+      return wrap;
+    }
+    const W = 300, H = 64, pad = 3;
+    const x0 = h[0][0], x1 = h[h.length - 1][0];
+    const vals = h.flatMap((r) => [r[1], r[3]]).filter((v) => v != null).map(toUnit);
+    let lo = Math.min(...vals), hi = Math.max(...vals);
+    if (hi - lo < 2) { const m = (hi + lo) / 2; lo = m - 1; hi = m + 1; }
+    const sx = (x) => ((x - x0) / (x1 - x0 || 1)) * W;
+    const sy = (y) => pad + (1 - (y - lo) / (hi - lo)) * (H - pad * 2);
+    let bands = "";
+    h.forEach((r, i) => {
+      if (!r[2] || i === h.length - 1) return;
+      const color = r[2] === 1 ? "var(--temp)" : "var(--hum)";
+      bands += `<rect x="${sx(r[0]).toFixed(1)}" y="0" width="${Math.max(sx(h[i + 1][0]) - sx(r[0]), 1).toFixed(1)}" height="${H}" fill="${color}" opacity="0.22"/>`;
+    });
+    const line = h.filter((r) => r[1] != null).map((r, i) => `${i ? "L" : "M"}${sx(r[0]).toFixed(1)},${sy(toUnit(r[1])).toFixed(1)}`).join("");
+    const set = h.filter((r) => r[3] != null).map((r, i) => `${i ? "L" : "M"}${sx(r[0]).toFixed(1)},${sy(toUnit(r[3])).toFixed(1)}`).join("");
+    const anyCool = h.some((r) => r[2] === 2), anyHeat = h.some((r) => r[2] === 1);
+    const legend = [anyHeat && "orange = heating", anyCool && "blue = cooling", set && "dashed = set point"].filter(Boolean).join(" · ");
+    wrap.innerHTML = `
+      <div class="chart-label"><span>Thermostat · ${rangeH}h</span><span>${legend}</span></div>
+      <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Thermostat temperature and heating periods, last ${rangeH} hours">
+        ${bands}
+        <line x1="0" x2="${W}" y1="${H - 0.5}" y2="${H - 0.5}" stroke="var(--grid)" stroke-width="1" vector-effect="non-scaling-stroke"/>
+        ${set ? `<path d="${set}" fill="none" stroke="var(--text-2)" stroke-width="1.5" stroke-dasharray="4 3" vector-effect="non-scaling-stroke"/>` : ""}
+        <path d="${line}" fill="none" stroke="var(--text)" stroke-width="2" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
+      </svg>`;
+    return wrap;
+  }
+
+  function nestCard(n) {
+    const u = "°" + unit;
+    const card = document.createElement("section");
+    card.className = "card" + (n.online ? "" : " stale");
+    const heat = data.heat || {};
+    const dur = (m) => m < 60 ? `${m} min` : `${Math.floor(m / 60)} hr ${m % 60} min`;
+    const forTxt = n.hvac === "HEATING" && heat.calling && heat.minutes != null
+      ? ` · ${heat.since_is_lower_bound ? "≥ " : ""}${dur(heat.minutes)}` : "";
+    const hv = n.hvac === "HEATING" ? `🔥 Heating${forTxt}` : n.hvac === "COOLING" ? "❄ Cooling" : "Idle";
+    // Nest stores set points in Celsius; its app shows whole °F (or half °C).
+    const sp = (f) => unit === "F" ? Math.round(f).toFixed(0) : (Math.round(toUnit(f) * 2) / 2).toFixed(1);
+    const mode = n.mode === "OFF" ? "Off"
+      : n.eco ? `Eco · ${[n.heat_to, n.cool_to].filter((v) => v != null).map((v) => sp(v) + u).join("–")}`
+      : n.mode === "HEAT" ? `Heat · set to ${sp(n.heat_to)}${u}`
+      : n.mode === "COOL" ? `Cool · set to ${sp(n.cool_to)}${u}`
+      : n.mode === "HEATCOOL" ? `Heat/Cool · ${sp(n.heat_to)}–${sp(n.cool_to)}${u}` : (n.mode || "–");
+    card.innerHTML = `
+      <div class="card-head">
+        <h2 title="${esc(n.name)}">${esc(n.name)}</h2>
+        <span class="badge"><span class="dot" style="background:${n.online ? "var(--good)" : "var(--warning)"}"></span>${n.online ? "Nest thermostat" : "Nest offline"}</span>
+      </div>
+      <div class="hero">
+        <span class="temp">${fmt(toUnit(n.ambient))}<small>${u}</small></span>
+        <span class="hum">${fmt(n.humidity, 0)}<small>% RH</small></span>
+        <span class="trend">${hv}</span>
+      </div>
+      <div class="meta">Mode: ${esc(mode)}</div>
+      ${heat.calling && heat.supply_f != null ? `<div class="meta">Supply ${fmt(toUnit(heat.supply_f))}${u} · ${heat.delta_f >= 0 ? "+" : ""}${fmt(toUnitDelta(heat.delta_f))}° over return</div>` : ""}
+      <div class="meta">Checked ${ago(n.observed)}</div>`;
+    card.appendChild(nestChart(n.history || []));
+    return card;
+  }
+
+  function renderCamera() {
+    const sec = $("sec-cam"), div = $("cam-divider"), root = $("cam-cards");
+    sec.hidden = div.hidden = !cam;
+    if (!cam) return;
+    const age = minutesSince(cam.captured_at);
+    const late = age > CAM_STALE_MIN;
+    const st = cam.status;
+    const pill = st === "error" ? ["var(--critical)", `⚠ Error ${cam.error_code || ""}`.trim()]
+      : st === "normal" ? ["var(--good)", "Normal"]
+      : st === "unclear" ? ["var(--warning)", "Display not readable"]
+      : st === "not_visible" ? ["var(--warning)", "Furnace not in view"]
+      : ["var(--warning)", "Camera offline"];
+    $("cam-meta").textContent = `${pill[1]} · ${ago(cam.captured_at)}`;
+    const img = cam.image
+      ? `<img class="cam-img" src="${CAM_BASE}${cam.image}?t=${encodeURIComponent(cam.captured_at)}" alt="${esc(cam.summary || "Furnace camera")}" loading="lazy">
+         ${cam.image_stale ? `<div class="meta">⚠ Last good image, not current</div>` : ""}`
+      : `<p class="meta">${st === "not_visible" ? "The furnace isn't in view, so the image is not published." : "No image."}</p>`;
+    const fields = [
+      cam.display_reading && ["Display", esc(cam.display_reading)],
+      cam.code_meaning && ["Meaning", esc(cam.code_meaning)],
+      cam.concerns && ["⚠ Check", esc(cam.concerns)],
+      cam.error && ["Problem", esc(cam.error)],
+    ].filter(Boolean).map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("");
+    root.innerHTML = `
+      <section class="card cam-card">
+        <div class="card-head">
+          <h2>Furnace</h2>
+          <span class="badge"><span class="dot" style="background:${pill[0]}"></span>${esc(pill[1])}</span>
+        </div>
+        ${img}
+        <p style="margin:8px 0 0">${esc(cam.summary || "")}</p>
+        ${fields ? `<dl class="cam-fields">${fields}</dl>` : ""}
+        <div class="meta">Checked ${ago(cam.captured_at)}${late ? " · ⚠ the Mac mini hasn't reported recently" : ""}${cam.model ? ` · read by ${esc(cam.model)}` : ""}</div>
+      </section>`;
+  }
+
+  async function loadCamera() {
+    try {
+      const res = await fetch(`${CAM_BASE}camera.json?t=${Math.floor(Date.now() / 60000)}`, { cache: "no-store" });
+      cam = res.ok ? await res.json() : null;
+    } catch (_) { cam = null; }
+    renderCamera();
+  }
+
+  function statusFor(s) {
+    const age = ageAtPull(s.latest?.observed);
+    if (!s.latest) return { color: "var(--critical)", text: "No data", stale: true };
+    if (age > STALE_MIN) return { color: "var(--warning)", text: `Offline · ${ago(s.latest.observed)}`, stale: true };
+    if (s.battery_voltage != null && s.battery_voltage < LOW_BATTERY_V)
+      return { color: "var(--warning)", text: `Low battery ${s.battery_voltage.toFixed(2)}V`, stale: false };
+    return { color: "var(--good)", text: ago(s.latest.observed), stale: false };
+  }
+
+  function render() {
+    if (!data) return;
+    const u = "°" + unit;
+    $("unit").textContent = u;
+    $("range").textContent = `${rangeH}h`;
+    $("updated").textContent = `Data pulled ${ago(data.generated_at)}`;
+    $("updated").title = new Date(data.generated_at).toLocaleString();
+
+    const sensors = data.sensors || [];
+    const statuses = sensors.map(statusFor);
+    const offline = statuses.filter((s) => s.stale).length;
+    const lowBatt = sensors.filter((s) => s.battery_voltage != null && s.battery_voltage < LOW_BATTERY_V).length;
+    const pills = [`<span class="pill"><span class="dot" style="background:var(--good)"></span>${sensors.length - offline} of ${sensors.length} sensors reporting</span>`];
+    if (offline) pills.push(`<span class="pill"><span class="dot" style="background:var(--warning)"></span>⚠ ${offline} offline</span>`);
+    if (lowBatt) pills.push(`<span class="pill"><span class="dot" style="background:var(--warning)"></span>🔋 ${lowBatt} low battery</span>`);
+    for (const g of data.gateways || []) {
+      const gAge = ageAtPull(g.last_seen);
+      const ok = gAge <= STALE_MIN;
+      pills.push(`<span class="pill" title="Last seen ${esc(g.last_seen)}"><span class="dot" style="background:${ok ? "var(--good)" : "var(--critical)"}"></span>${ok ? "" : "✕ "}Gateway ${esc(g.name)} · ${ago(g.last_seen)}</span>`);
+    }
+    if (minutesSince(data.generated_at) > FEED_STALE_MIN)
+      pills.unshift(`<span class="pill"><span class="dot" style="background:var(--warning)"></span>⚠ Feed last updated ${ago(data.generated_at)}. Waiting on the GitHub Action, not a sensor problem.</span>`);
+    if (data.nest_error)
+      pills.push(`<span class="pill" title="${esc(data.nest_error)}"><span class="dot" style="background:var(--warning)"></span>⚠ Nest didn't update on the last pull</span>`);
+    $("summary").innerHTML = pills.join("");
+
+    const nest = data.nest || [];
+    const nestRoot = $("nest-cards");
+    nestRoot.innerHTML = "";
+    nest.forEach((n) => nestRoot.appendChild(nestCard(n)));
+    $("sec-nest").hidden = !nest.length;
+    $("sec-divider").hidden = !nest.length;
+    const heat = data.heat || {};
+    $("nest-meta").textContent = nest.map((n) =>
+      `${n.name} · ${n.hvac === "HEATING" ? "Heating" + (heat.minutes != null ? ` ${heat.since_is_lower_bound ? "≥ " : ""}${heat.minutes < 60 ? heat.minutes + " min" : Math.floor(heat.minutes / 60) + "h " + (heat.minutes % 60) + "m"}` : "") : n.hvac === "COOLING" ? "Cooling" : "Idle"} · ${fmt(toUnit(n.ambient))}${u}`).join("  ·  ");
+    const al = $("heat-alert");
+    al.hidden = !heat.alert;
+    if (heat.alert) {
+      al.innerHTML = `<span class="icon" aria-hidden="true">⚠</span><div>
+        <strong>Heat is on, but no warm air is reaching ${esc(heat.supply_sensor)}</strong>
+        <p>The thermostat has called for heat for ${heat.since_is_lower_bound ? "at least " : ""}${heat.minutes} min.
+        The supply is ${fmt(toUnit(heat.supply_f))}${u}, and in the last ${heat.window_min} min it never got more than
+        ${fmt(toUnitDelta(heat.max_delta_recent_f))}° above the return (a running furnace is usually 30°+ above). Check the furnace.</p></div>`;
+    }
+    $("sensor-meta").textContent = sensors.length ? `${sensors.length - offline} of ${sensors.length} reporting` : "";
+
+    const root = $("cards");
+    root.innerHTML = "";
+    if (!sensors.length) {
+      root.innerHTML = `<div class="empty">No active sensors in the feed.</div>`;
+      return;
+    }
+    sensors.forEach((s, i) => {
+      const st = statuses[i];
+      const L = s.latest || {};
+      const card = document.createElement("section");
+      card.className = "card" + (st.stale ? " stale" : "");
+      const tr = trendFor(s.series || []);
+      let chip = "";
+      if (tr && !st.stale) {
+        const rate = toUnitDelta(tr.perHour);
+        const steady = Math.abs(tr.perHour) < STEADY_F_PER_H;
+        const word = steady ? "Steady" : tr.perHour > 0 ? "Rising" : "Falling";
+        const arrow = steady ? "→" : tr.perHour > 0 ? "↑" : "↓";
+        chip = `<span class="trend" title="Least-squares fit over the last hour">${arrow} ${word} <small>${rate > 0 ? "+" : ""}${fmt(rate)}°/hr</small></span>`;
+      }
+      const extras = [];
+      if (L.dewpoint != null) extras.push(`Dew point ${fmt(toUnit(L.dewpoint))}${u}`);
+      if (L.barometric_pressure != null) extras.push(`${fmt(L.barometric_pressure, 2)} inHg`);
+      const st24 = s.stats_24h || {};
+      card.innerHTML = `
+        <div class="card-head">
+          <h2 title="${esc(s.name)}">${esc(s.name)}</h2>
+          <span class="badge"><span class="dot" style="background:${st.color}"></span>${esc(st.text)}</span>
+        </div>
+        <div class="hero">
+          <span class="temp">${fmt(toUnit(L.temperature))}<small>${u}</small></span>
+          <span class="hum">${fmt(L.humidity, 0)}<small>% RH</small></span>
+          ${chip}
+        </div>
+        <div class="meta">${extras.join(" · ") || "&nbsp;"}</div>
+        <div class="meta">24h: ${fmt(toUnit(st24.temp_min))}–${fmt(toUnit(st24.temp_max))}${u}, ${fmt(st24.hum_min, 0)}–${fmt(st24.hum_max, 0)}% RH</div>`;
+      card.appendChild(chart(s.series || [], 1, "var(--temp)", "Temperature", u, toUnit, tr && !st.stale ? tr : null));
+      card.appendChild(chart(s.series || [], 2, "var(--hum)", "Humidity", "%", (v) => v));
+      root.appendChild(card);
+    });
+  }
+
+  async function load() {
+    loadCamera();
+    $("updated").textContent = data ? $("updated").textContent : "Loading…";
+    try {
+      // The query string busts any browser cache.
+      const sep = DATA_URL.includes("?") ? "&" : "?";
+      const res = await fetch(`${DATA_URL}${sep}t=${Math.floor(Date.now() / 60000)}`, { cache: "no-store" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      data = await res.json();
+      render();
+    } catch (e) {
+      if (data) { render(); return; }
+      $("updated").textContent = "";
+      $("cards").innerHTML = `<div class="error"><strong>Couldn't load sensor data</strong> (${esc(e.message)}).<br>
+        The feed lives at <code>${esc(DATA_URL)}</code>. If this is a new setup, run the
+        “SensorPush data” workflow once from the GitHub Actions tab.</div>`;
+    }
+  }
+
+  $("unit").addEventListener("click", () => {
+    unit = unit === "F" ? "C" : "F";
+    try { localStorage.setItem("sp-unit", unit); } catch (_) {}
+    render();
+  });
+  $("range").addEventListener("click", () => {
+    rangeH = rangeH === 6 ? 24 : 6;
+    try { localStorage.setItem("sp-range", String(rangeH)); } catch (_) {}
+    render();
+  });
+  for (const id of ["sec-nest", "sec-cam", "sec-sensors"]) {
+    const el = $(id);
+    try { if (localStorage.getItem("sp-" + id) === "closed") el.open = false; } catch (_) {}
+    el.addEventListener("toggle", () => {
+      try { localStorage.setItem("sp-" + id, el.open ? "open" : "closed"); } catch (_) {}
+    });
+  }
+  $("refresh").addEventListener("click", load);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) load(); });
+  setInterval(load, REFRESH_MS);
+  setInterval(() => { render(); renderCamera(); }, 60 * 1000); // keep "x min ago" labels honest
+  load();
+})();
+</script>
+</body>
+</html>
